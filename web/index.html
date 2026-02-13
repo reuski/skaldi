@@ -1,0 +1,508 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Skaldi Jukebox</title>
+    <style>
+        :root {
+            --bg: #121212;
+            --surface: #1e1e1e;
+            --surface-hover: #2a2a2a;
+            --primary: #00d4ff;
+            --text-main: #ffffff;
+            --text-sec: #b0b0b0;
+            --text-dim: #666;
+            --danger: #ff4d4d;
+            --spacing: 16px;
+            --radius: 12px;
+        }
+
+        body {
+            background-color: var(--bg);
+            color: var(--text-main);
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            margin: 0;
+            padding: 0;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        header {
+            padding: var(--spacing);
+            background: var(--surface);
+            box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+            z-index: 10;
+        }
+
+        .input-group {
+            display: flex;
+            gap: 8px;
+        }
+
+        input[type="text"] {
+            flex: 1;
+            padding: 12px;
+            border-radius: var(--radius);
+            border: none;
+            background: var(--bg);
+            color: var(--text-main);
+            font-size: 16px;
+        }
+
+        input[type="text"]:focus {
+            outline: 2px solid var(--primary);
+        }
+
+        button.add-btn {
+            background: var(--primary);
+            border: none;
+            border-radius: var(--radius);
+            color: #000;
+            font-weight: bold;
+            padding: 0 20px;
+            cursor: pointer;
+        }
+
+        button.add-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        main {
+            flex: 1;
+            overflow-y: auto;
+            padding: var(--spacing);
+        }
+
+        .section-label {
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            color: var(--text-dim);
+            padding: 8px 4px 4px;
+        }
+
+        .queue-list {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+        }
+
+        .queue-item {
+            display: flex;
+            align-items: center;
+            background: var(--surface);
+            padding: 12px;
+            margin-bottom: 4px;
+            border-radius: var(--radius);
+            gap: 12px;
+        }
+
+        .queue-item.played {
+            opacity: 0.45;
+        }
+
+        .queue-item.current {
+            border-left: 3px solid var(--primary);
+            background: var(--surface-hover);
+        }
+
+        .thumb {
+            width: 52px;
+            height: 39px;
+            background: #333;
+            border-radius: 4px;
+            object-fit: cover;
+            flex-shrink: 0;
+        }
+
+        .info {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .title {
+            font-weight: 500;
+            font-size: 14px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            margin-bottom: 2px;
+        }
+
+        .meta {
+            font-size: 12px;
+            color: var(--text-sec);
+        }
+
+        .delete-btn {
+            background: none;
+            border: none;
+            color: var(--text-sec);
+            font-size: 20px;
+            padding: 8px;
+            cursor: pointer;
+            flex-shrink: 0;
+        }
+
+        .delete-btn:hover {
+            color: var(--danger);
+        }
+
+        .empty-state {
+            text-align: center;
+            color: var(--text-dim);
+            padding: 48px 16px;
+            font-size: 14px;
+        }
+
+        footer {
+            background: var(--surface);
+            padding: var(--spacing);
+            padding-bottom: max(var(--spacing), env(safe-area-inset-bottom));
+            border-top: 1px solid rgba(255,255,255,0.1);
+        }
+
+        .now-playing {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .track-info {
+            text-align: center;
+        }
+
+        .track-title {
+            font-weight: bold;
+            font-size: 15px;
+            margin-bottom: 2px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .track-artist {
+            font-size: 13px;
+            color: var(--text-sec);
+        }
+
+        .controls {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 24px;
+        }
+
+        .ctrl-btn {
+            background: none;
+            border: none;
+            color: var(--text-main);
+            font-size: 24px;
+            cursor: pointer;
+            padding: 8px;
+            min-width: 44px;
+            min-height: 44px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .play-btn {
+            font-size: 32px;
+            width: 56px;
+            height: 56px;
+            background: var(--primary);
+            color: #000;
+            border-radius: 50%;
+        }
+
+        .progress-bar {
+            height: 4px;
+            background: #333;
+            border-radius: 2px;
+            overflow: hidden;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: var(--primary);
+            width: 0%;
+            transition: width 0.3s linear;
+        }
+
+        .time-labels {
+            display: flex;
+            justify-content: space-between;
+            font-size: 11px;
+            color: var(--text-sec);
+            margin-top: 4px;
+        }
+
+        .loading {
+            display: none;
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.7);
+            align-items: center;
+            justify-content: center;
+            z-index: 100;
+        }
+        .loading.active { display: flex; }
+
+        .toast {
+            position: fixed;
+            bottom: 100px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(50,50,50,0.9);
+            padding: 12px 24px;
+            border-radius: 20px;
+            opacity: 0;
+            transition: opacity 0.3s;
+            pointer-events: none;
+        }
+        .toast.show { opacity: 1; }
+        .toast.error { background: rgba(200, 50, 50, 0.9); }
+    </style>
+</head>
+<body>
+
+    <header>
+        <form class="input-group" id="addForm">
+            <input type="text" id="urlInput" placeholder="Paste YouTube URL..." autocomplete="off">
+            <button type="submit" class="add-btn" id="addBtn">Add</button>
+        </form>
+    </header>
+
+    <main>
+        <ul class="queue-list" id="queueList"></ul>
+    </main>
+
+    <footer>
+        <div class="now-playing">
+            <div class="track-info">
+                <div class="track-title" id="npTitle">Idle</div>
+                <div class="track-artist" id="npArtist"></div>
+            </div>
+
+            <div>
+                <div class="progress-bar">
+                    <div class="progress-fill" id="progFill"></div>
+                </div>
+                <div class="time-labels">
+                    <span id="currTime">0:00</span>
+                    <span id="durTime">0:00</span>
+                </div>
+            </div>
+
+            <div class="controls">
+                <button class="ctrl-btn" id="prevBtn">&#x23EE;</button>
+                <button class="ctrl-btn play-btn" id="playPauseBtn">&#x25B6;</button>
+                <button class="ctrl-btn" id="nextBtn">&#x23ED;</button>
+            </div>
+        </div>
+    </footer>
+
+    <div class="loading" id="loader">Processing...</div>
+    <div class="toast" id="toast">Message</div>
+
+    <script>
+        const PLACEHOLDER = "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI1MiIgaGVpZ2h0PSIzOSIgc3R5bGU9ImJhY2tncm91bmQ6IzMzMyI+PC9zdmc+";
+
+        // Previous-frame cache for diffing
+        let prev = { queueKey: null, npKey: null, status: null };
+
+        const $ = id => document.getElementById(id);
+        const npTitle   = $('npTitle');
+        const npArtist  = $('npArtist');
+        const progFill  = $('progFill');
+        const playBtn   = $('playPauseBtn');
+        const queueList = $('queueList');
+        const currTimeE = $('currTime');
+        const durTimeE  = $('durTime');
+        const form      = $('addForm');
+        const urlInput  = $('urlInput');
+        const loader    = $('loader');
+        const toastEl   = $('toast');
+
+        $('prevBtn').onclick = () => playback('previous');
+        $('nextBtn').onclick = () => playback('skip');
+        playBtn.onclick = () => playback(prev.status === 'playing' ? 'pause' : 'resume');
+
+        function fmtTime(s) {
+            if (!s || isNaN(s) || s < 0) return "0:00";
+            const m = Math.floor(s / 60);
+            return m + ':' + String(Math.floor(s % 60)).padStart(2, '0');
+        }
+
+        function escHTML(s) {
+            const d = document.createElement('div');
+            d.textContent = s;
+            return d.innerHTML;
+        }
+
+        function itemHTML(item, cls) {
+            const meta = item.metadata || {};
+            const title = escHTML(meta.title || item.title || item.filename);
+            const uploader = escHTML(meta.uploader || "");
+            const thumb = meta.thumbnail || PLACEHOLDER;
+            const dur = fmtTime(meta.duration || item.duration);
+            const parts = [uploader, dur].filter(Boolean).join(' \u00b7 ');
+            return '<li class="queue-item ' + cls + '">' +
+                '<img src="' + thumb + '" class="thumb" loading="lazy" onerror="this.src=\'' + PLACEHOLDER + '\'">' +
+                '<div class="info"><div class="title">' + title + '</div><div class="meta">' + parts + '</div></div>' +
+                '<button class="delete-btn" data-idx="' + item.index + '">\u00d7</button></li>';
+        }
+
+        function renderQueue(data) {
+            const np = data.now_playing;
+            const history = data.history || [];
+            const upcoming = data.upcoming || [];
+
+            if (!np && !history.length && !upcoming.length) {
+                queueList.innerHTML = '<div class="empty-state">Queue is empty. Paste a URL above to get started.</div>';
+                return;
+            }
+
+            let html = '';
+
+            if (history.length) {
+                html += '<div class="section-label">Played</div>';
+                for (const item of history) html += itemHTML(item, 'played');
+            }
+
+            if (np) {
+                html += '<div class="section-label">Now Playing</div>';
+                html += itemHTML(np, 'current');
+            }
+
+            if (upcoming.length) {
+                html += '<div class="section-label">Up Next</div>';
+                for (const item of upcoming) html += itemHTML(item, '');
+            }
+
+            queueList.innerHTML = html;
+        }
+
+        function renderNowPlaying(data) {
+            const np = data.now_playing;
+            if (np) {
+                const meta = np.metadata || {};
+                npTitle.textContent = meta.title || np.title || np.filename;
+                npArtist.textContent = meta.uploader || "";
+            } else {
+                npTitle.textContent = data.status === 'idle' ? "Idle" : "Loading...";
+                npArtist.textContent = "";
+            }
+        }
+
+        function renderProgress(data) {
+            const pct = data.duration > 0 ? (data.current_time / data.duration) * 100 : 0;
+            progFill.style.width = pct + '%';
+            currTimeE.textContent = fmtTime(data.current_time);
+            durTimeE.textContent = fmtTime(data.duration);
+        }
+
+        function renderControls(status) {
+            playBtn.textContent = status === 'playing' ? '\u23F8' : '\u25B6';
+        }
+
+        // Fast structural keys for diffing
+        function makeQueueKey(data) {
+            const ids = (data.queue || []).map(i => i.index + ':' + i.filename);
+            return data.current_index + '|' + ids.join(',');
+        }
+
+        function makeNpKey(data) {
+            const np = data.now_playing;
+            return np ? np.index + ':' + np.filename : '';
+        }
+
+        function onState(data) {
+            renderProgress(data);
+
+            const qk = makeQueueKey(data);
+            if (qk !== prev.queueKey) {
+                prev.queueKey = qk;
+                renderQueue(data);
+            }
+
+            const nk = makeNpKey(data);
+            if (nk !== prev.npKey) {
+                prev.npKey = nk;
+                renderNowPlaying(data);
+            }
+
+            if (data.status !== prev.status) {
+                prev.status = data.status;
+                renderControls(data.status);
+            }
+        }
+
+        // SSE
+        const evtSource = new EventSource("/events");
+        evtSource.onmessage = (e) => onState(JSON.parse(e.data));
+
+        // Delegated delete handler
+        queueList.addEventListener('click', (e) => {
+            const btn = e.target.closest('.delete-btn');
+            if (btn) removeItem(parseInt(btn.dataset.idx, 10));
+        });
+
+        form.onsubmit = async (e) => {
+            e.preventDefault();
+            const url = urlInput.value.trim();
+            if (!url) return;
+
+            loader.classList.add('active');
+            urlInput.blur();
+
+            try {
+                const res = await fetch('/queue', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({url})
+                });
+                if (!res.ok) throw new Error(await res.text());
+                urlInput.value = '';
+                showToast("Added to queue");
+            } catch (err) {
+                showToast(err.message, true);
+            } finally {
+                loader.classList.remove('active');
+            }
+        };
+
+        async function playback(action) {
+            try {
+                await fetch('/playback', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({action})
+                });
+            } catch (err) {
+                console.error(err);
+            }
+        }
+
+        async function removeItem(index) {
+            try {
+                await fetch('/queue/' + index, { method: 'DELETE' });
+            } catch (err) {
+                console.error(err);
+            }
+        }
+
+        function showToast(msg, isError) {
+            toastEl.textContent = msg;
+            toastEl.className = 'toast show' + (isError ? ' error' : '');
+            setTimeout(() => toastEl.className = 'toast', 3000);
+        }
+    </script>
+</body>
+</html>
