@@ -31,10 +31,10 @@ func DownloadFile(url, filepath string) error {
 	return nil
 }
 
-func ConstructUvUrl(version, artifactName string) string {
+func ConstructUvURL(version, artifactName string) string {
 	return fmt.Sprintf("https://github.com/astral-sh/uv/releases/download/%s/%s", version, artifactName)
 }
 
-func ConstructBunUrl(version, artifactName string) string {
+func ConstructBunURL(version, artifactName string) string {
 	return fmt.Sprintf("https://github.com/oven-sh/bun/releases/download/bun-v%s/%s", version, artifactName)
 }

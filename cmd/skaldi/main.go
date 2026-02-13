@@ -68,15 +68,18 @@ func main() {
 	case <-ctx.Done():
 	}
 
+	logger.Info("Bye")
+	signal.Stop(sigCh)
+
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer shutdownCancel()
 
 	srv.Shutdown(shutdownCtx)
 	mgr.Stop()
+	cancel()
 
 	select {
 	case <-playerDone:
 	case <-shutdownCtx.Done():
-		cancel()
 	}
 }

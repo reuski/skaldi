@@ -19,6 +19,7 @@ type QueueRequest struct {
 
 type PlaybackRequest struct {
 	Action string `json:"action"`
+	Index  int    `json:"index"`
 }
 
 func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
@@ -70,11 +71,32 @@ func (s *Server) handleQueue(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.WriteHeader(http.StatusAccepted)
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	json.NewEncoder(w).Encode(map[string]any{
 		"status": "queued",
 		"count":  count,
 		"tracks": tracks,
 	})
+}
+
+func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
+	query := r.URL.Query().Get("q")
+	if query == "" {
+		http.Error(w, "Query is required", http.StatusBadRequest)
+		return
+	}
+
+	tracks, err := s.resolver.Search(r.Context(), query, 5)
+	if err != nil {
+		if r.Context().Err() != nil {
+			return
+		}
+		s.logger.Error("Failed to search", "query", query, "error", err)
+		http.Error(w, "Search failed", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(tracks)
 }
 
 func (s *Server) handlePlayback(w http.ResponseWriter, r *http.Request) {
@@ -94,6 +116,8 @@ func (s *Server) handlePlayback(w http.ResponseWriter, r *http.Request) {
 		_, err = s.player.Exec("playlist-next")
 	case "previous":
 		_, err = s.player.Exec("playlist-prev")
+	case "play":
+		_, err = s.player.Exec("playlist-play-index", req.Index)
 	default:
 		http.Error(w, "Invalid action", http.StatusBadRequest)
 		return

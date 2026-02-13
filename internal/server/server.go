@@ -1,3 +1,4 @@
+// Package server provides HTTP handlers and SSE broadcasting for the jukebox API.
 package server
 
 import (
@@ -6,6 +7,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"time"
 
 	"skaldi/internal/player"
 	"skaldi/internal/resolver"
@@ -30,11 +32,14 @@ func New(logger *slog.Logger, p *player.Manager, r *resolver.Resolver, indexHTML
 		indexHTML:   indexHTML,
 		broadcaster: NewBroadcaster(p.StateUpdates),
 		server: &http.Server{
-			Addr: fmt.Sprintf(":%d", port),
+			Addr:              fmt.Sprintf(":%d", port),
+			ReadHeaderTimeout: 10 * time.Second,
 		},
 	}
 
 	mux.HandleFunc("GET /", s.handleIndex)
+	mux.HandleFunc("GET /suggest", s.handleSuggest)
+	mux.HandleFunc("GET /search", s.handleSearch)
 	mux.HandleFunc("POST /queue", s.handleQueue)
 	mux.HandleFunc("POST /playback", s.handlePlayback)
 	mux.HandleFunc("DELETE /queue/{index}", s.handleRemove)
@@ -65,7 +70,7 @@ func (s *Server) printReadyMessage(mdnsActive bool) {
 	port := s.server.Addr
 
 	if mdnsActive {
-		s.logger.Info(fmt.Sprintf("Skaldi ready at http://skaldi.local%s", port))
+		s.logger.Info(fmt.Sprintf("http://skaldi.local%s", port))
 	}
 
 	ifaces, err := net.Interfaces()

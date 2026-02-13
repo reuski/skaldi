@@ -1,3 +1,4 @@
+// Package player manages the mpv media player process and IPC communication.
 package player
 
 import (
@@ -128,6 +129,7 @@ func (m *Manager) Stop() {
 		m.ipc.Exec("quit")
 		m.ipc.Close()
 	}
+	close(m.StateUpdates)
 }
 
 func (m *Manager) start(ctx context.Context) error {

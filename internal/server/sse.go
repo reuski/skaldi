@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"sync"
+	"time"
 
 	"skaldi/internal/player"
 )
@@ -74,17 +75,23 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 	clientCh := s.broadcaster.AddClient()
 	defer s.broadcaster.RemoveClient(clientCh)
 
+	fmt.Fprintf(w, "retry: 3000\n")
 	currentSnapshot := s.player.State.Snapshot()
 	data, _ := json.Marshal(currentSnapshot)
 	fmt.Fprintf(w, "data: %s\n\n", data)
 	flusher.Flush()
 
 	notify := r.Context().Done()
+	ticker := time.NewTicker(15 * time.Second)
+	defer ticker.Stop()
 
 	for {
 		select {
 		case <-notify:
 			return
+		case <-ticker.C:
+			fmt.Fprintf(w, ": keepalive\n\n")
+			flusher.Flush()
 		case msg, ok := <-clientCh:
 			if !ok {
 				return

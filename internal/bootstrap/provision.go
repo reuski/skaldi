@@ -76,7 +76,7 @@ func installUv(cfg *Config, version string) error {
 		return err
 	}
 
-	url := ConstructUvUrl(version, info.UvArtifact)
+	url := ConstructUvURL(version, info.UvArtifact)
 	tmpFile := filepath.Join(cfg.CacheDir, "uv_download.tmp")
 	defer os.Remove(tmpFile)
 
@@ -92,7 +92,7 @@ func installBun(cfg *Config, version string) error {
 		return err
 	}
 
-	url := ConstructBunUrl(version, info.BunArtifact)
+	url := ConstructBunURL(version, info.BunArtifact)
 	tmpFile := filepath.Join(cfg.CacheDir, "bun_download.tmp")
 	defer os.Remove(tmpFile)
 

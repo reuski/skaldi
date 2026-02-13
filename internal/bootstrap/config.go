@@ -1,3 +1,4 @@
+// Package bootstrap handles dependency provisioning and configuration management.
 package bootstrap
 
 import (
@@ -19,7 +20,7 @@ func LoadConfig() (*Config, error) {
 		return nil, fmt.Errorf("failed to determine user cache directory: %w", err)
 	}
 
-	cacheDir := filepath.Join(userCache, "jukebox")
+	cacheDir := filepath.Join(userCache, "skaldi")
 
 	return &Config{
 		CacheDir:  cacheDir,
