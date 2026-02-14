@@ -7,171 +7,161 @@ import (
 	"skaldi/internal/bootstrap"
 )
 
-func TestParseYtDlpResponse(t *testing.T) {
+func TestTrackFromResponse(t *testing.T) {
 	tests := []struct {
 		name     string
-		json     string
+		resp     ytDlpResponse
 		expected Track
 	}{
 		{
-			name: "complete_youtube_response",
-			json: `{
-				"id": "dQw4w9WgXcQ",
-				"title": "Test Video",
-				"duration": 212.0,
-				"uploader": "Test Channel",
-				"thumbnail": "https://example.com/thumb.jpg",
-				"webpage_url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
-				"url": "dQw4w9WgXcQ",
-				"ie_key": "Youtube"
-			}`,
+			name: "ytmusic_result",
+			resp: ytDlpResponse{
+				ID:         "abc123",
+				Title:      "Maniac",
+				Artist:     "Michael Sembello",
+				Duration:   256,
+				Uploader:   "Michael Sembello - Topic",
+				WebpageURL: "https://music.youtube.com/watch?v=abc123",
+				IEKey:      "Youtube",
+			},
 			expected: Track{
-				Title:      "Test Video",
-				Duration:   212.0,
-				Uploader:   "Test Channel",
-				Thumbnail:  "https://example.com/thumb.jpg",
-				WebpageURL: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+				Title:      "Maniac",
+				Artist:     "Michael Sembello",
+				Duration:   256,
+				Uploader:   "Michael Sembello - Topic",
+				WebpageURL: "https://music.youtube.com/watch?v=abc123",
 			},
 		},
 		{
-			name: "response_without_webpage_url",
-			json: `{
-				"id": "abc123",
-				"title": "Another Video",
-				"duration": 300.0,
-				"uploader": "Another Channel",
-				"url": "https://example.com/video.mp4"
-			}`,
-			expected: Track{
-				Title:      "Another Video",
-				Duration:   300.0,
-				Uploader:   "Another Channel",
-				WebpageURL: "https://example.com/video.mp4",
+			name: "regular_youtube",
+			resp: ytDlpResponse{
+				ID:         "xyz789",
+				Title:      "Some Video",
+				Duration:   300,
+				Uploader:   "Channel Name",
+				WebpageURL: "https://www.youtube.com/watch?v=xyz789",
+				IEKey:      "Youtube",
 			},
-		},
-		{
-			name: "youtube_with_video_id_only",
-			json: `{
-				"id": "xyz789",
-				"title": "Short Video",
-				"duration": 60.0,
-				"ie_key": "Youtube"
-			}`,
 			expected: Track{
-				Title:      "Short Video",
-				Duration:   60.0,
+				Title:      "Some Video",
+				Artist:     "Channel Name",
+				Duration:   300,
+				Uploader:   "Channel Name",
 				WebpageURL: "https://www.youtube.com/watch?v=xyz789",
 			},
 		},
 		{
-			name: "minimal_response",
-			json: `{
-				"title": "Minimal"
-			}`,
+			name: "no_webpage_url_uses_id",
+			resp: ytDlpResponse{
+				ID:       "def456",
+				Title:    "Video Title",
+				Duration: 180,
+				IEKey:    "Youtube",
+			},
 			expected: Track{
-				Title: "Minimal",
+				Title:      "Video Title",
+				Duration:   180,
+				WebpageURL: "https://www.youtube.com/watch?v=def456",
 			},
 		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			var resp ytDlpResponse
-			if err := json.Unmarshal([]byte(tc.json), &resp); err != nil {
-				t.Fatalf("Failed to unmarshal JSON: %v", err)
-			}
+			got := trackFromResponse(tc.resp)
 
-			track := Track{
-				Title:      resp.Title,
-				Duration:   resp.Duration,
-				Uploader:   resp.Uploader,
-				Thumbnail:  resp.Thumbnail,
-				WebpageURL: resp.WebpageURL,
+			if got.Title != tc.expected.Title {
+				t.Errorf("Title = %q, want %q", got.Title, tc.expected.Title)
 			}
-
-			if track.WebpageURL == "" {
-				if resp.URL != "" {
-					if resp.IEKey == "Youtube" && len(resp.URL) == 11 {
-						track.WebpageURL = "https://www.youtube.com/watch?v=" + resp.URL
-					} else {
-						track.WebpageURL = resp.URL
-					}
-				} else if resp.ID != "" {
-					if resp.IEKey == "Youtube" {
-						track.WebpageURL = "https://www.youtube.com/watch?v=" + resp.ID
-					} else {
-						track.WebpageURL = resp.ID
-					}
-				}
+			if got.Artist != tc.expected.Artist {
+				t.Errorf("Artist = %q, want %q", got.Artist, tc.expected.Artist)
 			}
-
-			if track.Title != tc.expected.Title {
-				t.Errorf("Title = %q, want %q", track.Title, tc.expected.Title)
+			if got.Duration != tc.expected.Duration {
+				t.Errorf("Duration = %f, want %f", got.Duration, tc.expected.Duration)
 			}
-
-			if track.Duration != tc.expected.Duration {
-				t.Errorf("Duration = %f, want %f", track.Duration, tc.expected.Duration)
-			}
-
-			if track.Uploader != tc.expected.Uploader {
-				t.Errorf("Uploader = %q, want %q", track.Uploader, tc.expected.Uploader)
-			}
-
-			if track.WebpageURL != tc.expected.WebpageURL {
-				t.Errorf("WebpageURL = %q, want %q", track.WebpageURL, tc.expected.WebpageURL)
+			if got.WebpageURL != tc.expected.WebpageURL {
+				t.Errorf("WebpageURL = %q, want %q", got.WebpageURL, tc.expected.WebpageURL)
 			}
 		})
 	}
 }
 
-func TestTrack_Struct(t *testing.T) {
+func TestExtractVideoID(t *testing.T) {
+	tests := []struct {
+		url      string
+		expected string
+	}{
+		{"https://www.youtube.com/watch?v=abc123", "abc123"},
+		{"https://youtu.be/xyz789", ""},
+		{"", ""},
+		{"invalid-url", ""},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.url, func(t *testing.T) {
+			got := extractVideoID(tc.url)
+			if got != tc.expected {
+				t.Errorf("extractVideoID(%q) = %q, want %q", tc.url, got, tc.expected)
+			}
+		})
+	}
+}
+
+func TestDedup(t *testing.T) {
+	primary := []Track{
+		{Title: "First", WebpageURL: "https://youtube.com/watch?v=1"},
+		{Title: "Second", WebpageURL: "https://youtube.com/watch?v=2"},
+	}
+	secondary := []Track{
+		{Title: "Duplicate", WebpageURL: "https://youtube.com/watch?v=1"},
+		{Title: "Third", WebpageURL: "https://youtube.com/watch?v=3"},
+	}
+
+	result := dedup(primary, secondary)
+
+	if len(result) != 3 {
+		t.Errorf("dedup returned %d tracks, want 3", len(result))
+	}
+
+	expected := []string{"First", "Second", "Third"}
+	for i, title := range expected {
+		if result[i].Title != title {
+			t.Errorf("result[%d].Title = %q, want %q", i, result[i].Title, title)
+		}
+	}
+}
+
+func TestTrackStruct(t *testing.T) {
 	track := Track{
-		Title:      "Test Title",
-		Duration:   180.5,
-		Uploader:   "Test Uploader",
-		Thumbnail:  "https://example.com/thumb.jpg",
-		URL:        "https://example.com/video.mp4",
-		WebpageURL: "https://example.com/watch",
-		IsLive:     true,
+		Title:      "Test",
+		Artist:     "Test Artist",
+		Duration:   180,
+		Uploader:   "Uploader",
+		WebpageURL: "https://example.com",
 	}
 
 	data, err := json.Marshal(track)
 	if err != nil {
-		t.Fatalf("Failed to marshal Track: %v", err)
+		t.Fatalf("Marshal failed: %v", err)
 	}
 
-	var unmarshaled Track
-	if err := json.Unmarshal(data, &unmarshaled); err != nil {
-		t.Fatalf("Failed to unmarshal Track: %v", err)
+	var decoded Track
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatalf("Unmarshal failed: %v", err)
 	}
 
-	if unmarshaled.Title != track.Title {
-		t.Errorf("Title mismatch: got %q, want %q", unmarshaled.Title, track.Title)
-	}
-
-	if unmarshaled.Duration != track.Duration {
-		t.Errorf("Duration mismatch: got %f, want %f", unmarshaled.Duration, track.Duration)
-	}
-
-	if unmarshaled.IsLive != track.IsLive {
-		t.Errorf("IsLive mismatch: got %v, want %v", unmarshaled.IsLive, track.IsLive)
+	if decoded.Artist != track.Artist {
+		t.Errorf("Artist mismatch: got %q, want %q", decoded.Artist, track.Artist)
 	}
 }
 
-func TestResolver_New(t *testing.T) {
-	cfg := &bootstrap.Config{
-		CacheDir: "/tmp/test",
-	}
-
+func TestResolverNew(t *testing.T) {
+	cfg := &bootstrap.Config{CacheDir: "/tmp/test"}
 	r := New(cfg)
-	if r == nil {
-		t.Error("New() returned nil")
-	}
-
 	if r == nil {
 		t.Fatal("New() returned nil")
 	}
 	if r.cfg != cfg {
-		t.Error("Resolver config mismatch")
+		t.Error("Config not set correctly")
 	}
 }

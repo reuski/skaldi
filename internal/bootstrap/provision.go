@@ -46,7 +46,7 @@ func Run(logger *slog.Logger) error {
 			return fmt.Errorf("failed to install uv: %w", err)
 		}
 		state.Uv = latest.Uv
-		SaveState(cfg.CacheDir, state)
+		_ = SaveState(cfg.CacheDir, state)
 	}
 
 	if state.Bun != latest.Bun || !fileExists(cfg.BunPath()) {
@@ -55,7 +55,7 @@ func Run(logger *slog.Logger) error {
 			return fmt.Errorf("failed to install bun: %w", err)
 		}
 		state.Bun = latest.Bun
-		SaveState(cfg.CacheDir, state)
+		_ = SaveState(cfg.CacheDir, state)
 	}
 
 	if err := upgradeYtDlp(cfg, state, logger); err != nil {
@@ -114,7 +114,7 @@ func upgradeYtDlp(cfg *Config, state *State, logger *slog.Logger) error {
 	version, err := getYtDlpVersion(cfg)
 	if err == nil {
 		state.YtDlp = version
-		SaveState(cfg.CacheDir, state)
+		_ = SaveState(cfg.CacheDir, state)
 	}
 	return nil
 }

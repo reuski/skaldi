@@ -61,23 +61,25 @@
 
             .input-group {
                 display: flex;
-                gap: var(--space-1);
                 max-width: 640px;
                 margin: 0 auto;
                 width: 100%;
+                position: relative;
             }
 
             input[type="text"] {
                 flex: 1;
-                padding: var(--space-1) var(--space-2);
+                padding: var(--space-2);
                 border-radius: var(--radius);
                 border: 1px solid var(--border);
                 background: var(--surface);
                 color: var(--text-main);
-                font-size: 16px;
+                font-size: 18px;
                 transition:
                     border-color 0.15s,
-                    background-color 0.15s;
+                    background-color 0.15s,
+                    box-shadow 0.15s;
+                height: 54px;
             }
 
             input[type="text"]:hover {
@@ -88,6 +90,7 @@
                 outline: none;
                 border-color: var(--primary);
                 background: var(--surface-hover);
+                box-shadow: 0 0 0 3px rgba(212, 175, 55, 0.1);
             }
 
             input[type="text"]::placeholder {
@@ -116,6 +119,25 @@
             button.add-btn:disabled {
                 opacity: 0.4;
                 cursor: not-allowed;
+            }
+
+            body.drag-over::after {
+                content: "Drop files to upload";
+                position: fixed;
+                inset: 0;
+                background: rgba(26, 24, 22, 0.9);
+                color: var(--primary);
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                font-size: 24px;
+                font-weight: 500;
+                z-index: 2000;
+                pointer-events: none;
+                backdrop-filter: blur(4px);
+                border: 2px dashed var(--primary);
+                margin: var(--space-2);
+                border-radius: var(--radius);
             }
 
             main {
@@ -381,20 +403,32 @@
             .loading {
                 display: none;
                 position: fixed;
-                top: 0;
-                left: 0;
-                right: 0;
-                bottom: 0;
+                inset: 0;
                 background: rgba(0, 0, 0, 0.85);
                 align-items: center;
                 justify-content: center;
                 z-index: 100;
-                font-size: 14px;
-                color: var(--text-sec);
-                letter-spacing: 0.02em;
             }
             .loading.active {
                 display: flex;
+            }
+            .loading::after {
+                content: "";
+                width: 6px;
+                height: 6px;
+                background: var(--primary);
+                border-radius: 50%;
+                animation: pulse 0.8s ease-in-out infinite alternate;
+            }
+            @keyframes pulse {
+                from {
+                    opacity: 0.2;
+                    transform: scale(1);
+                }
+                to {
+                    opacity: 1;
+                    transform: scale(1.8);
+                }
             }
 
             .search-container {
@@ -423,14 +457,36 @@
                 display: block;
             }
 
+            .suggest-text {
+                padding: 12px 16px;
+                cursor: pointer;
+                border-bottom: 1px solid var(--border);
+                transition: background-color 0.15s;
+                font-size: 15px;
+                color: var(--text);
+                white-space: nowrap;
+                overflow: hidden;
+                text-overflow: ellipsis;
+            }
+
+            .suggest-text:last-child {
+                border-bottom: none;
+            }
+
+            .suggest-text.active {
+                background: var(--surface-hover);
+                border-left: 3px solid var(--primary);
+            }
+
             .suggestion-item {
                 display: flex;
-                gap: var(--space-1);
-                padding: var(--space-1);
+                gap: var(--space-2);
+                padding: 12px 16px;
                 cursor: pointer;
                 border-bottom: 1px solid var(--border);
                 transition: background-color 0.15s;
                 align-items: center;
+                min-height: 48px;
             }
 
             .suggestion-item:last-child {
@@ -527,22 +583,7 @@
                     />
                     <div class="suggestions" id="suggestions"></div>
                 </div>
-                <button type="submit" class="add-btn" id="addBtn" aria-label="Add">
-                    <svg
-                        xmlns="http://www.w3.org/2000/svg"
-                        width="16"
-                        height="16"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        stroke-width="2"
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                    >
-                        <path d="M5 12h14" />
-                        <path d="M12 5v14" />
-                    </svg>
-                </button>
+                <input type="file" id="fileInput" multiple style="display: none" />
             </form>
         </header>
 
@@ -644,7 +685,7 @@
             </div>
         </footer>
 
-        <div class="loading" id="loader">Processing...</div>
+        <div class="loading" id="loader"></div>
         <div class="toast" id="toast">Message</div>
 
         <script>
@@ -663,46 +704,126 @@
             const durTimeE = $("durTime");
             const form = $("addForm");
             const urlInput = $("urlInput");
+            const fileInput = $("fileInput");
             const suggestions = $("suggestions");
             const loader = $("loader");
             const toastEl = $("toast");
 
-            let searchTimeout;
-            let currentAbortController = null;
+            let suggestTimeout;
+            let suggestAbort = null;
+            let searchAbort = null;
             let currentFocusIndex = -1;
+            let dropdownMode = ""; // "suggest" | "tracks"
 
             urlInput.addEventListener("input", (e) => {
                 const q = e.target.value.trim();
-                clearTimeout(searchTimeout);
-                if (currentAbortController) currentAbortController.abort();
+                clearTimeout(suggestTimeout);
+                if (suggestAbort) suggestAbort.abort();
+                if (searchAbort) searchAbort.abort();
 
                 if (!q || q.startsWith("http")) {
-                    suggestions.classList.remove("active");
+                    closeSuggestions();
                     return;
                 }
 
-                suggestions.innerHTML = '<div class="loading-item">Searching...</div>';
-                suggestions.classList.add("active");
-
-                searchTimeout = setTimeout(async () => {
-                    currentAbortController = new AbortController();
-                    try {
-                        const res = await fetch("/search?q=" + encodeURIComponent(q), {
-                            signal: currentAbortController.signal,
-                        });
-                        if (!res.ok) throw new Error();
-                        const tracks = await res.json();
-                        renderSuggestions(tracks);
-                    } catch (err) {
-                        if (err.name !== "AbortError") {
-                            suggestions.classList.remove("active");
-                        }
-                    }
-                }, 300);
+                suggestTimeout = setTimeout(() => fetchSuggestions(q), 150);
             });
 
+            async function fetchSuggestions(q) {
+                suggestAbort = new AbortController();
+                try {
+                    const res = await fetch("/suggest?q=" + encodeURIComponent(q), {
+                        signal: suggestAbort.signal,
+                    });
+                    if (!res.ok) throw new Error();
+                    const items = await res.json();
+                    renderTypeahead(items);
+                } catch (err) {
+                    if (err.name !== "AbortError") {
+                        closeSuggestions();
+                    }
+                }
+            }
+
+            async function searchTracks(q) {
+                if (searchAbort) searchAbort.abort();
+                searchAbort = new AbortController();
+                dropdownMode = "tracks";
+                currentFocusIndex = -1;
+                suggestions.innerHTML = '<div class="loading-item">Searching...</div>';
+                suggestions.classList.add("active");
+                try {
+                    const res = await fetch("/search?q=" + encodeURIComponent(q), {
+                        signal: searchAbort.signal,
+                    });
+                    if (!res.ok) throw new Error();
+                    const tracks = await res.json();
+                    renderTrackResults(tracks);
+                } catch (err) {
+                    if (err.name !== "AbortError") {
+                        suggestions.innerHTML = '<div class="loading-item">Search failed</div>';
+                    }
+                }
+            }
+
+            function renderTypeahead(items) {
+                if (!items || !items.length) {
+                    closeSuggestions();
+                    return;
+                }
+                dropdownMode = "suggest";
+                currentFocusIndex = -1;
+                suggestions.innerHTML = items
+                    .map((s) => '<div class="suggest-text">' + escHTML(s) + "</div>")
+                    .join("");
+                suggestions.classList.add("active");
+            }
+
+            function renderTrackResults(tracks) {
+                if (!tracks || !tracks.length) {
+                    suggestions.innerHTML = '<div class="loading-item">No results found</div>';
+                    return;
+                }
+                dropdownMode = "tracks";
+                currentFocusIndex = -1;
+                suggestions.innerHTML = tracks
+                    .map((t) => {
+                        const title = escHTML(t.title);
+                        const artist = escHTML(t.artist || t.uploader);
+                        let dur = "";
+                        if (t.duration > 0) {
+                            dur = fmtTime(t.duration);
+                        } else if (t.is_music) {
+                            dur = "Song";
+                        }
+
+                        const url = escHTML(t.webpage_url || t.url);
+                        return (
+                            '<div class="suggestion-item" data-url="' +
+                            url +
+                            '">' +
+                            '<div class="sug-info">' +
+                            '<div class="sug-title">' +
+                            title +
+                            "</div>" +
+                            (artist ? '<div class="sug-artist">' + artist + "</div>" : "") +
+                            "</div>" +
+                            (dur ? '<div class="sug-duration">' + dur + "</div>" : "") +
+                            "</div>"
+                        );
+                    })
+                    .join("");
+            }
+
+            function closeSuggestions() {
+                suggestions.classList.remove("active");
+                suggestions.innerHTML = "";
+                dropdownMode = "";
+                currentFocusIndex = -1;
+            }
+
             urlInput.addEventListener("keydown", (e) => {
-                const items = suggestions.querySelectorAll(".suggestion-item");
+                const items = suggestions.querySelectorAll(".suggest-text, .suggestion-item");
                 const isActive = suggestions.classList.contains("active");
 
                 if (e.key === "ArrowDown" || (e.key === "Tab" && !e.shiftKey)) {
@@ -726,13 +847,18 @@
                     if (isActive && currentFocusIndex > -1 && items.length) {
                         e.preventDefault();
                         items[currentFocusIndex].click();
+                    } else if (isActive && dropdownMode === "suggest") {
+                        e.preventDefault();
+                        const q = urlInput.value.trim();
+                        if (q && !q.startsWith("http")) {
+                            searchTracks(q);
+                        }
                     }
                 } else if (e.key === "Escape") {
                     if (isActive) {
                         e.preventDefault();
                         e.stopPropagation();
-                        suggestions.classList.remove("active");
-                        currentFocusIndex = -1;
+                        closeSuggestions();
                     } else {
                         e.target.blur();
                     }
@@ -750,51 +876,25 @@
                 });
             }
 
-            function renderSuggestions(tracks) {
-                if (!tracks || !tracks.length) {
-                    suggestions.innerHTML = '<div class="loading-item">No results found</div>';
+            suggestions.addEventListener("click", (e) => {
+                e.stopPropagation();
+                const textItem = e.target.closest(".suggest-text");
+                if (textItem) {
+                    const q = textItem.textContent;
+                    urlInput.value = q;
+                    searchTracks(q);
                     return;
                 }
-                currentFocusIndex = -1;
-                suggestions.innerHTML = tracks
-                    .map((t) => {
-                        const title = escHTML(t.title);
-                        const artist = escHTML(t.uploader);
-                        const dur = fmtTime(t.duration);
-                        const url = escHTML(t.webpage_url || t.url);
-                        return (
-                            '<div class="suggestion-item" data-url="' +
-                            url +
-                            '">' +
-                            '<div class="sug-info">' +
-                            '<div class="sug-title">' +
-                            title +
-                            "</div>" +
-                            '<div class="sug-artist">' +
-                            artist +
-                            "</div>" +
-                            "</div>" +
-                            '<div class="sug-duration">' +
-                            dur +
-                            "</div>" +
-                            "</div>"
-                        );
-                    })
-                    .join("");
-            }
-
-            suggestions.addEventListener("click", (e) => {
-                const item = e.target.closest(".suggestion-item");
-                if (item) {
-                    urlInput.value = item.dataset.url;
-                    suggestions.classList.remove("active");
-                    form.dispatchEvent(new Event("submit", { cancelable: true }));
+                const trackItem = e.target.closest(".suggestion-item");
+                if (trackItem) {
+                    addToQueue(trackItem.dataset.url);
+                    closeSuggestions();
                 }
             });
 
             document.addEventListener("click", (e) => {
                 if (!e.target.closest(".search-container")) {
-                    suggestions.classList.remove("active");
+                    closeSuggestions();
                 }
             });
 
@@ -819,7 +919,11 @@
                 const title = escHTML(meta.title || item.title || item.filename);
                 const uploader = escHTML(meta.uploader || "");
                 const thumb = meta.thumbnail || PLACEHOLDER;
-                const dur = fmtTime(meta.duration || item.duration);
+                let dur = "";
+                const dVal = meta.duration || item.duration;
+                if (dVal > 0) {
+                    dur = fmtTime(dVal);
+                }
                 const parts = [uploader, dur].filter(Boolean).join(" · ");
                 return (
                     '<li class="queue-item ' +
@@ -856,7 +960,7 @@
 
                 if (!np && !history.length && !upcoming.length) {
                     queueList.innerHTML =
-                        '<div class="empty-state">Queue is empty. Paste a URL above to get started.</div>';
+                        '<div class="empty-state">Queue is empty. Paste a URL or search above.</div>';
                     return;
                 }
 
@@ -953,11 +1057,13 @@
 
             let evtSource;
             function connectSSE() {
-                if (evtSource) {
-                    evtSource.close();
-                }
+                if (evtSource) evtSource.close();
+                loader.classList.add("active");
                 evtSource = new EventSource("/events");
-                evtSource.onmessage = (e) => onState(JSON.parse(e.data));
+                evtSource.onmessage = (e) => {
+                    loader.classList.remove("active");
+                    onState(JSON.parse(e.data));
+                };
                 evtSource.onerror = () => {
                     if (evtSource.readyState === EventSource.CLOSED) {
                         setTimeout(connectSSE, 3000);
@@ -968,7 +1074,10 @@
             connectSSE();
 
             document.addEventListener("visibilitychange", () => {
-                if (document.visibilityState === "visible") {
+                if (
+                    document.visibilityState === "visible" &&
+                    evtSource.readyState !== EventSource.OPEN
+                ) {
                     connectSSE();
                 }
             });
@@ -1013,12 +1122,62 @@
 
             form.onsubmit = async (e) => {
                 e.preventDefault();
-                const url = urlInput.value.trim();
-                if (!url) return;
+                const val = urlInput.value.trim();
+                if (!val) return;
 
+                if (val.match(/^https?:\/\//i)) {
+                    addToQueue(val);
+                } else {
+                    searchTracks(val);
+                }
+            };
+
+            fileInput.onchange = (e) => handleFiles(e.target.files);
+
+            function handleFiles(files) {
+                if (!files || !files.length) return;
+                Array.from(files).forEach((file) => uploadFile(file));
+                fileInput.value = "";
+            }
+
+            async function uploadFile(file) {
+                const formData = new FormData();
+                formData.append("file", file);
+
+                showToast(`Uploading ${file.name}...`);
+                try {
+                    const res = await fetch("/upload", {
+                        method: "POST",
+                        body: formData,
+                    });
+                    if (!res.ok) throw new Error();
+                    showToast(`Uploaded ${file.name}`);
+                } catch (err) {
+                    showToast(`Failed to upload ${file.name}`, true);
+                }
+            }
+
+            let dragCounter = 0;
+            document.body.addEventListener("dragenter", (e) => {
+                e.preventDefault();
+                dragCounter++;
+                document.body.classList.add("drag-over");
+            });
+            document.body.addEventListener("dragover", (e) => e.preventDefault());
+            document.body.addEventListener("dragleave", (e) => {
+                dragCounter--;
+                if (dragCounter <= 0) document.body.classList.remove("drag-over");
+            });
+            document.body.addEventListener("drop", (e) => {
+                e.preventDefault();
+                dragCounter = 0;
+                document.body.classList.remove("drag-over");
+                handleFiles(e.dataTransfer.files);
+            });
+
+            async function addToQueue(url) {
                 loader.classList.add("active");
                 urlInput.blur();
-
                 try {
                     const res = await fetch("/queue", {
                         method: "POST",
@@ -1034,7 +1193,7 @@
                 } finally {
                     loader.classList.remove("active");
                 }
-            };
+            }
 
             async function playback(action) {
                 try {
@@ -1067,7 +1226,6 @@
                     console.error(err);
                 }
             }
-
             function showToast(msg, isError) {
                 toastEl.textContent = msg;
                 toastEl.className = "toast show" + (isError ? " error" : "");
@@ -1079,10 +1237,20 @@
                     return;
                 }
 
+                if ((e.ctrlKey || e.metaKey) && e.key === "o") {
+                    e.preventDefault();
+                    fileInput.click();
+                    return;
+                }
+
                 switch (e.key) {
                     case " ":
                         e.preventDefault();
                         playback(prev.status === "playing" ? "pause" : "resume");
+                        break;
+                    case "u":
+                        e.preventDefault();
+                        fileInput.click();
                         break;
                     case "ArrowLeft":
                         e.preventDefault();
@@ -1109,6 +1277,22 @@
             });
 
             document.addEventListener("paste", (e) => {
+                const items = (e.clipboardData || window.clipboardData).items;
+                const files = [];
+                if (items) {
+                    for (let i = 0; i < items.length; i++) {
+                        if (items[i].kind === "file") {
+                            const f = items[i].getAsFile();
+                            if (f) files.push(f);
+                        }
+                    }
+                }
+                if (files.length > 0) {
+                    e.preventDefault();
+                    handleFiles(files);
+                    return;
+                }
+
                 const pasted = (e.clipboardData || window.clipboardData).getData("text");
                 const urlMatch = pasted.match(/https?:\/\/[^\s]+/);
                 if (!urlMatch) return;
@@ -1120,20 +1304,7 @@
                     urlInput.value = url;
                 }
 
-                loader.classList.add("active");
-                fetch("/queue", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ url }),
-                })
-                    .then((res) => {
-                        if (!res.ok) throw new Error("Failed to add");
-                        urlInput.value = "";
-                        urlInput.focus();
-                        showToast("Added to queue");
-                    })
-                    .catch(() => showToast("Failed to add", true))
-                    .finally(() => loader.classList.remove("active"));
+                addToQueue(url);
             });
         </script>
     </body>

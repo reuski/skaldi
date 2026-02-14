@@ -74,7 +74,7 @@ func main() {
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer shutdownCancel()
 
-	srv.Shutdown(shutdownCtx)
+	_ = srv.Shutdown(shutdownCtx)
 	mgr.Stop()
 	cancel()
 

@@ -22,7 +22,7 @@ func (m *Manager) RegisterObservers() {
 	properties := []string{"idle-active", "pause", "time-pos", "duration", "playlist", "media-title", "playlist-pos"}
 	for _, prop := range properties {
 		go func(p string) {
-			m.ipc.Exec("observe_property", 0, p)
+			_, _ = m.ipc.Exec("observe_property", 0, p)
 		}(prop)
 	}
 }

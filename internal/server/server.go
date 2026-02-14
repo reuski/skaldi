@@ -38,6 +38,7 @@ func New(logger *slog.Logger, p *player.Manager, r *resolver.Resolver, indexHTML
 	}
 
 	mux.HandleFunc("GET /", s.handleIndex)
+	mux.HandleFunc("GET /suggest", s.handleSuggest)
 	mux.HandleFunc("GET /search", s.handleSearch)
 	mux.HandleFunc("POST /queue", s.handleQueue)
 	mux.HandleFunc("POST /playback", s.handlePlayback)

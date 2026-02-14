@@ -153,8 +153,16 @@ func (s *State) SetTimePos(t float64) {
 
 func (s *State) SetDuration(d float64) {
 	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.duration = d
-	s.mu.Unlock()
+
+	if s.playlistPos >= 0 && s.playlistPos < len(s.playlist) {
+		filename := s.playlist[s.playlistPos].Filename
+		if track, ok := s.metadata[filename]; ok {
+			track.Duration = d
+			s.metadata[filename] = track
+		}
+	}
 }
 
 func (s *State) SetPlaylist(entries []MpvPlaylistEntry) {

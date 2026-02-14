@@ -29,7 +29,7 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "text/html")
-	w.Write(s.indexHTML)
+	_, _ = w.Write(s.indexHTML)
 }
 
 func (s *Server) handleQueue(w http.ResponseWriter, r *http.Request) {
@@ -71,7 +71,7 @@ func (s *Server) handleQueue(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.WriteHeader(http.StatusAccepted)
-	json.NewEncoder(w).Encode(map[string]any{
+	_ = json.NewEncoder(w).Encode(map[string]any{
 		"status": "queued",
 		"count":  count,
 		"tracks": tracks,
@@ -85,7 +85,7 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	tracks, err := s.resolver.Resolve(r.Context(), "ytsearch5:"+query)
+	tracks, err := s.resolver.Search(r.Context(), query, 5)
 	if err != nil {
 		if r.Context().Err() != nil {
 			return
@@ -96,7 +96,7 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(tracks)
+	_ = json.NewEncoder(w).Encode(tracks)
 }
 
 func (s *Server) handlePlayback(w http.ResponseWriter, r *http.Request) {
@@ -117,7 +117,7 @@ func (s *Server) handlePlayback(w http.ResponseWriter, r *http.Request) {
 	case "previous":
 		_, err = s.player.Exec("playlist-prev")
 	case "play":
-		_, err = s.player.Exec("playlist-play-index", req.Index)
+		err = s.player.PlayIndex(req.Index)
 	default:
 		http.Error(w, "Invalid action", http.StatusBadRequest)
 		return

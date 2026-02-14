@@ -19,8 +19,7 @@ type Manager struct {
 	logger *slog.Logger
 	ipc    *IPCClient
 
-	cmd    *exec.Cmd
-	cancel context.CancelFunc
+	cmd *exec.Cmd
 
 	State        *State
 	StateUpdates chan Snapshot
@@ -126,7 +125,7 @@ func (m *Manager) Run(ctx context.Context) error {
 func (m *Manager) Stop() {
 	m.stopping.Store(true)
 	if m.ipc != nil {
-		m.ipc.Exec("quit")
+		_, _ = m.ipc.Exec("quit")
 		m.ipc.Close()
 	}
 	close(m.StateUpdates)
@@ -162,12 +161,12 @@ func (m *Manager) start(ctx context.Context) error {
 	m.cmd = cmd
 
 	if err := m.waitForSocket(ctx); err != nil {
-		cmd.Process.Kill()
+		_ = cmd.Process.Kill()
 		return err
 	}
 
 	if err := m.ipc.Connect(); err != nil {
-		cmd.Process.Kill()
+		_ = cmd.Process.Kill()
 		return fmt.Errorf("failed to connect IPC: %w", err)
 	}
 
@@ -200,4 +199,34 @@ func (m *Manager) Wait() error {
 
 func (m *Manager) Exec(args ...interface{}) (interface{}, error) {
 	return m.ipc.Exec(args...)
+}
+
+func (m *Manager) PlayIndex(targetIdx int) error {
+	result, err := m.ipc.Exec("get_property", "playlist-pos")
+	if err != nil {
+		return fmt.Errorf("failed to get playlist position: %w", err)
+	}
+
+	currentIdx := -1
+	switch v := result.(type) {
+	case float64:
+		currentIdx = int(v)
+	case int:
+		currentIdx = v
+	}
+
+	if currentIdx < 0 || targetIdx <= currentIdx {
+		_, err = m.ipc.Exec("playlist-play-index", targetIdx)
+		return err
+	}
+
+	for i := currentIdx + 1; i < targetIdx; i++ {
+		_, err = m.ipc.Exec("playlist-move", currentIdx+1, -1)
+		if err != nil {
+			return fmt.Errorf("failed to move item %d: %w", i, err)
+		}
+	}
+
+	_, err = m.ipc.Exec("playlist-play-index", currentIdx+1)
+	return err
 }

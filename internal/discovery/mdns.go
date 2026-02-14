@@ -50,8 +50,8 @@ func registerAvahi(ctx context.Context, logger *slog.Logger, ip string, port int
 			return func() {}, false
 		}
 		return func() {
-			cmd.Process.Signal(os.Interrupt)
-			cmd.Wait()
+			_ = cmd.Process.Signal(os.Interrupt)
+			_ = cmd.Wait()
 		}, true
 	}
 
@@ -65,18 +65,18 @@ func registerAvahi(ctx context.Context, logger *slog.Logger, ip string, port int
 
 	svcCmd := exec.CommandContext(ctx, path, "-s", "-H", fqdn, "Skaldi Jukebox", "_http._tcp", fmt.Sprint(port), "path=/")
 	if err := svcCmd.Start(); err != nil {
-		addrCmd.Process.Signal(os.Interrupt)
-		addrCmd.Wait()
+		_ = addrCmd.Process.Signal(os.Interrupt)
+		_ = addrCmd.Wait()
 		logger.Warn("Failed to publish service record", "error", err)
 		return func() {}, false
 	}
 
 	logger.Debug("mDNS address and service registration started")
 	return func() {
-		svcCmd.Process.Signal(os.Interrupt)
-		svcCmd.Wait()
-		addrCmd.Process.Signal(os.Interrupt)
-		addrCmd.Wait()
+		_ = svcCmd.Process.Signal(os.Interrupt)
+		_ = svcCmd.Wait()
+		_ = addrCmd.Process.Signal(os.Interrupt)
+		_ = addrCmd.Wait()
 	}, true
 }
 
@@ -98,8 +98,8 @@ func registerBonjour(ctx context.Context, logger *slog.Logger, ip string, port i
 
 	logger.Debug("mDNS service registration started")
 	return func() {
-		cmd.Process.Signal(os.Interrupt)
-		cmd.Wait()
+		_ = cmd.Process.Signal(os.Interrupt)
+		_ = cmd.Wait()
 	}, true
 }
 
