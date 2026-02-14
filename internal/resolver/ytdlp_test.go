@@ -132,6 +132,7 @@ func TestTrack_Struct(t *testing.T) {
 		Thumbnail:  "https://example.com/thumb.jpg",
 		URL:        "https://example.com/video.mp4",
 		WebpageURL: "https://example.com/watch",
+		IsLive:     true,
 	}
 
 	data, err := json.Marshal(track)
@@ -150,6 +151,10 @@ func TestTrack_Struct(t *testing.T) {
 
 	if unmarshaled.Duration != track.Duration {
 		t.Errorf("Duration mismatch: got %f, want %f", unmarshaled.Duration, track.Duration)
+	}
+
+	if unmarshaled.IsLive != track.IsLive {
+		t.Errorf("IsLive mismatch: got %v, want %v", unmarshaled.IsLive, track.IsLive)
 	}
 }
 

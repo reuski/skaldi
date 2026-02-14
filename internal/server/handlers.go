@@ -85,7 +85,7 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	tracks, err := s.resolver.Search(r.Context(), query, 5)
+	tracks, err := s.resolver.Resolve(r.Context(), "ytsearch5:"+query)
 	if err != nil {
 		if r.Context().Err() != nil {
 			return
