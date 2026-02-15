@@ -7,7 +7,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log/slog"
 	"net/url"
 	"os/exec"
 	"sync"
@@ -34,13 +33,15 @@ type ytDlpResponse struct {
 	Duration   float64 `json:"duration"`
 	Uploader   string  `json:"uploader"`
 	Thumbnail  string  `json:"thumbnail"`
-	WebpageURL string  `json:"webpage_url"`
-	URL        string  `json:"url"`
-	IEKey      string  `json:"ie_key"`
-}
-
-type playlistWrapper struct {
-	Entries []ytDlpResponse `json:"entries"`
+	Thumbnails []struct {
+		URL    string `json:"url"`
+		Height int    `json:"height"`
+		Width  int    `json:"width"`
+	} `json:"thumbnails"`
+	WebpageURL string `json:"webpage_url"`
+	URL        string `json:"url"`
+	IEKey      string `json:"ie_key"`
+	LiveStatus string `json:"live_status"`
 }
 
 type Resolver struct {
@@ -51,94 +52,76 @@ func New(cfg *bootstrap.Config) *Resolver {
 	return &Resolver{cfg: cfg}
 }
 
-func (r *Resolver) Search(ctx context.Context, query string, limit int) ([]Track, error) {
-	musicURL := "https://music.youtube.com/search?q=" + url.QueryEscape(query) + "#songs"
-	searchKey := fmt.Sprintf("ytsearch%d:%s", limit, query)
-
-	resultCh := make(chan []Track, 2)
-	var wg sync.WaitGroup
-	wg.Add(2)
-
-	go func() {
-		defer wg.Done()
-		ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
-		defer cancel()
-		tracks, err := r.search(ctx, musicURL, limit)
-		if err != nil {
-			slog.Debug("YT Music search failed", "error", err)
-			return
-		}
-		if len(tracks) == 0 {
-			return
-		}
-		for i := range tracks {
-			tracks[i].IsMusic = true
-		}
-		resultCh <- tracks
-	}()
-
-	go func() {
-		defer wg.Done()
-		ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
-		defer cancel()
-		tracks, err := r.search(ctx, searchKey, 0)
-		if err != nil {
-			slog.Debug("YouTube search failed", "error", err)
-			return
-		}
-		if len(tracks) == 0 {
-			return
-		}
-		resultCh <- tracks
-	}()
-
-	go func() {
-		wg.Wait()
-		close(resultCh)
-	}()
-
-	var music, regular []Track
-	for tracks := range resultCh {
-		if len(tracks) > 0 && tracks[0].IsMusic {
-			music = tracks
-		} else {
-			regular = tracks
-		}
+func (r *Resolver) Search(ctx context.Context, query string, limit int, source string) ([]Track, error) {
+	if source == "music" {
+		return r.searchMusic(ctx, query, limit)
 	}
-
-	if len(music) == 0 && len(regular) == 0 {
-		return nil, fmt.Errorf("no tracks found")
-	}
-
-	return dedup(music, regular), nil
+	return r.searchYouTube(ctx, query, limit)
 }
 
-func (r *Resolver) search(ctx context.Context, uri string, limit int) ([]Track, error) {
-	args := []string{"--dump-json", "--no-download", "--no-warnings"}
-	if limit > 0 {
-		args = append(args, "--playlist-end", fmt.Sprintf("%d", limit))
-	}
-	args = append(args, uri)
+func (r *Resolver) searchYouTube(ctx context.Context, query string, limit int) ([]Track, error) {
+	searchKey := fmt.Sprintf("ytsearch%d:%s", limit, query)
+	args := []string{"--dump-json", "--flat-playlist", "--no-download", "--no-warnings", searchKey}
 
 	cmd := exec.CommandContext(ctx, r.cfg.ShimPath(), args...)
-	out, err := cmd.CombinedOutput()
-
-	if len(out) > 0 {
-		var wrapper playlistWrapper
-		if json.Unmarshal(out, &wrapper) == nil && len(wrapper.Entries) > 0 {
-			return entriesToTracks(wrapper.Entries), nil
-		}
-
-		if tracks, parseErr := parseLines(out); parseErr == nil && len(tracks) > 0 {
-			return tracks, nil
-		}
-	}
-
+	out, err := cmd.Output()
 	if err != nil {
 		return nil, fmt.Errorf("yt-dlp failed: %w", err)
 	}
 
-	return nil, fmt.Errorf("no tracks found")
+	return parseLines(out)
+}
+
+func (r *Resolver) searchMusic(ctx context.Context, query string, limit int) ([]Track, error) {
+	musicURL := "https://music.youtube.com/search?q=" + url.QueryEscape(query) + "#songs"
+	args := []string{"--dump-json", "--flat-playlist", "--no-download", "--no-warnings"}
+	if limit > 0 {
+		args = append(args, "--playlist-end", fmt.Sprintf("%d", limit*2))
+	}
+	args = append(args, musicURL)
+
+	cmd := exec.CommandContext(ctx, r.cfg.ShimPath(), args...)
+	out, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("yt-dlp music search failed: %w", err)
+	}
+
+	tracks, err := parseLines(out)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(tracks) > limit {
+		tracks = tracks[:limit]
+	}
+
+	var wg sync.WaitGroup
+	enrichedTracks := make([]Track, len(tracks))
+
+	for i, t := range tracks {
+		wg.Add(1)
+		go func(idx int, track Track) {
+			defer wg.Done()
+
+			track.IsMusic = true
+			enrichedTracks[idx] = track
+
+			if track.WebpageURL == "" {
+				return
+			}
+
+			fullCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+			defer cancel()
+
+			fullMeta, err := r.fetchMetadata(fullCtx, track.WebpageURL)
+			if err == nil {
+				enrichedTracks[idx] = fullMeta
+				enrichedTracks[idx].IsMusic = true
+			}
+		}(i, t)
+	}
+	wg.Wait()
+	return enrichedTracks, nil
 }
 
 func (r *Resolver) Resolve(ctx context.Context, url string) ([]Track, error) {
@@ -151,6 +134,21 @@ func (r *Resolver) Resolve(ctx context.Context, url string) ([]Track, error) {
 	return parseLines(out)
 }
 
+func (r *Resolver) fetchMetadata(ctx context.Context, url string) (Track, error) {
+	args := []string{"--dump-json", "--no-playlist", "--no-download", "--no-warnings", url}
+	cmd := exec.CommandContext(ctx, r.cfg.ShimPath(), args...)
+	out, err := cmd.Output()
+	if err != nil {
+		return Track{}, err
+	}
+
+	var resp ytDlpResponse
+	if err := json.Unmarshal(out, &resp); err != nil {
+		return Track{}, err
+	}
+	return trackFromResponse(resp), nil
+}
+
 func parseLines(data []byte) ([]Track, error) {
 	var tracks []Track
 	scanner := bufio.NewScanner(bytes.NewReader(data))
@@ -161,6 +159,11 @@ func parseLines(data []byte) ([]Track, error) {
 		if err := json.Unmarshal(scanner.Bytes(), &resp); err != nil {
 			continue
 		}
+
+		if resp.IEKey == "YoutubeTab" || resp.LiveStatus == "is_live" || resp.LiveStatus == "was_live" {
+			continue
+		}
+
 		if t := trackFromResponse(resp); t.WebpageURL != "" {
 			tracks = append(tracks, t)
 		}
@@ -175,16 +178,6 @@ func parseLines(data []byte) ([]Track, error) {
 	return tracks, nil
 }
 
-func entriesToTracks(entries []ytDlpResponse) []Track {
-	tracks := make([]Track, 0, len(entries))
-	for _, e := range entries {
-		if t := trackFromResponse(e); t.WebpageURL != "" {
-			tracks = append(tracks, t)
-		}
-	}
-	return tracks
-}
-
 func trackFromResponse(r ytDlpResponse) Track {
 	artist := r.Artist
 	if artist == "" {
@@ -196,47 +189,24 @@ func trackFromResponse(r ytDlpResponse) Track {
 		url = "https://www.youtube.com/watch?v=" + r.ID
 	}
 
+	thumb := r.Thumbnail
+	if len(r.Thumbnails) > 0 {
+		last := r.Thumbnails[len(r.Thumbnails)-1]
+		if last.URL != "" {
+			thumb = last.URL
+		}
+	}
+
+	if thumb == "" && r.ID != "" {
+		thumb = fmt.Sprintf("https://i.ytimg.com/vi/%s/hqdefault.jpg", r.ID)
+	}
+
 	return Track{
 		Title:      r.Title,
 		Artist:     artist,
 		Duration:   r.Duration,
 		Uploader:   r.Uploader,
-		Thumbnail:  r.Thumbnail,
+		Thumbnail:  thumb,
 		WebpageURL: url,
 	}
-}
-
-func dedup(primary, secondary []Track) []Track {
-	seen := make(map[string]struct{}, len(primary))
-	out := make([]Track, 0, len(primary)+len(secondary))
-
-	for _, t := range primary {
-		if id := extractVideoID(t.WebpageURL); id != "" {
-			seen[id] = struct{}{}
-		}
-		out = append(out, t)
-	}
-
-	for _, t := range secondary {
-		if id := extractVideoID(t.WebpageURL); id != "" {
-			if _, dup := seen[id]; dup {
-				continue
-			}
-			seen[id] = struct{}{}
-		}
-		out = append(out, t)
-	}
-
-	return out
-}
-
-func extractVideoID(urlStr string) string {
-	if urlStr == "" {
-		return ""
-	}
-	u, err := url.Parse(urlStr)
-	if err != nil {
-		return ""
-	}
-	return u.Query().Get("v")
 }

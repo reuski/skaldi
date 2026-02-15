@@ -21,7 +21,7 @@ func Run(logger *slog.Logger) error {
 	}
 
 	for _, dir := range []string{cfg.CacheDir, cfg.BinDir, cfg.UvBinDir} {
-		if err := os.MkdirAll(dir, 0755); err != nil {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
 			return fmt.Errorf("failed to create directory %s: %w", dir, err)
 		}
 	}
@@ -31,7 +31,7 @@ func Run(logger *slog.Logger) error {
 		state = &State{}
 	}
 
-	latest, err := FetchLatestVersions()
+	latest, err := FetchLatestVersions(cfg.CacheDir, logger)
 	if err != nil {
 		if state.Uv != "" && fileExists(cfg.UvPath()) {
 			logger.Debug("GitHub API unavailable, using installed versions")
@@ -133,5 +133,5 @@ func generateShim(cfg *Config) error {
 	shimContent := fmt.Sprintf("#!/bin/sh\nexec \"%s\" --js-runtimes \"bun:%s\" \"$@\"\n",
 		cfg.RealYtDlpPath(), cfg.BunPath())
 
-	return os.WriteFile(cfg.ShimPath(), []byte(shimContent), 0755)
+	return os.WriteFile(cfg.ShimPath(), []byte(shimContent), 0o755)
 }

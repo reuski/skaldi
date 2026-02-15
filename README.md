@@ -2,7 +2,7 @@
 
 Skaldi is a self-hosting network jukebox delivered as a single Go binary. It transforms any Linux or macOS machine into a shared audio player controlled via a web interface.
 
-![CI](https://github.com/reuski/skaldi/actions/workflows/ci.yml/badge.svg)
+![CI](https://github.com/reuski/skaldi/actions/workflows/ci.yml/badge.svg) ![Release](https://img.shields.io/github/v/release/reuski/skaldi?style=flat-square) ![Go Report Card](https://goreportcard.com/badge/github.com/reuski/skaldi?style=flat-square)
 
 ## Features
 

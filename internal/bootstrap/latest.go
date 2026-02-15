@@ -19,19 +19,45 @@ type githubRelease struct {
 
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
-func FetchLatestVersions() (*LatestVersions, error) {
+const versionCacheTTL = 24 * time.Hour
+
+func FetchLatestVersions(cacheDir string, logger interface{ Debug(string, ...any) }) (*LatestVersions, error) {
+	cv, _ := LoadCachedVersions(cacheDir)
+	if cv != nil && time.Since(cv.CheckedAt) < versionCacheTTL {
+		if logger != nil {
+			logger.Debug("Using cached version check", "age", time.Since(cv.CheckedAt).Round(time.Minute))
+		}
+		return &cv.Versions, nil
+	}
+
+	if logger != nil {
+		logger.Debug("Fetching latest versions from GitHub API")
+	}
+
 	uv, err := fetchLatestTag("astral-sh", "uv")
 	if err != nil {
+		if cv != nil {
+			return &cv.Versions, nil
+		}
 		return nil, fmt.Errorf("uv: %w", err)
 	}
 
 	bun, err := fetchLatestTag("oven-sh", "bun")
 	if err != nil {
+		if cv != nil {
+			return &cv.Versions, nil
+		}
 		return nil, fmt.Errorf("bun: %w", err)
 	}
 	bun = strings.TrimPrefix(bun, "bun-v")
 
-	return &LatestVersions{Uv: uv, Bun: bun}, nil
+	versions := &LatestVersions{Uv: uv, Bun: bun}
+	_ = SaveCachedVersions(cacheDir, &CachedVersions{
+		Versions:  *versions,
+		CheckedAt: time.Now(),
+	})
+
+	return versions, nil
 }
 
 func fetchLatestTag(owner, repo string) (string, error) {

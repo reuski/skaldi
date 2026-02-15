@@ -1,1311 +1,1547 @@
 <!doctype html>
 <html lang="en">
-    <head>
-        <meta charset="UTF-8" />
-        <meta
-            name="viewport"
-            content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"
-        />
-        <title>Skaldi</title>
-        <link
-            rel="icon"
-            href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='%23d4af37' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M2 10v3'/%3E%3Cpath d='M6 6v11'/%3E%3Cpath d='M10 3v18'/%3E%3Cpath d='M14 8v7'/%3E%3Cpath d='M18 5v13'/%3E%3Cpath d='M22 10v3'/%3E%3C/svg%3E"
-            type="image/svg+xml"
-        />
-        <style>
-            :root {
-                --bg: #1a1816;
-                --surface: #2d2824;
-                --surface-hover: #3d3630;
-                --primary: #d4af37;
-                --text-main: #f4ecd8;
-                --text-sec: #a89f94;
-                --text-dim: #6d645c;
-                --danger: #b22222;
-                --border: #1f1f1f;
-                --space-1: 8px;
-                --space-2: 16px;
-                --space-3: 24px;
-                --space-4: 32px;
-                --radius-sm: 4px;
-                --radius: 8px;
-            }
-
-            * {
-                box-sizing: border-box;
-            }
-
-            body {
-                background-color: var(--bg);
-                color: var(--text-main);
-                font-family:
-                    -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", Roboto,
-                    "Helvetica Neue", sans-serif;
-                margin: 0;
-                padding: 0;
-                height: 100dvh;
-                display: flex;
-                flex-direction: column;
-                overflow: hidden;
-                font-size: 14px;
-                line-height: 1.5;
-                -webkit-font-smoothing: antialiased;
-            }
-
-            header {
-                padding: var(--space-2);
-                background: var(--bg);
-                border-bottom: 1px solid var(--border);
-                flex-shrink: 0;
-            }
-
-            .input-group {
-                display: flex;
-                max-width: 640px;
-                margin: 0 auto;
-                width: 100%;
-                position: relative;
-            }
-
-            input[type="text"] {
-                flex: 1;
-                padding: var(--space-2);
-                border-radius: var(--radius);
-                border: 1px solid var(--border);
-                background: var(--surface);
-                color: var(--text-main);
-                font-size: 18px;
-                transition:
-                    border-color 0.15s,
-                    background-color 0.15s,
-                    box-shadow 0.15s;
-                height: 54px;
-            }
-
-            input[type="text"]:hover {
-                border-color: #2a2a2a;
-            }
-
-            input[type="text"]:focus {
-                outline: none;
-                border-color: var(--primary);
-                background: var(--surface-hover);
-                box-shadow: 0 0 0 3px rgba(212, 175, 55, 0.1);
-            }
-
-            input[type="text"]::placeholder {
-                color: var(--text-sec);
-            }
-
-            button.add-btn {
-                background: var(--surface);
-                border: 1px solid var(--border);
-                border-radius: var(--radius);
-                color: var(--text-main);
-                font-size: 14px;
-                font-weight: 500;
-                padding: 0 var(--space-2);
-                cursor: pointer;
-                transition:
-                    background-color 0.15s,
-                    border-color 0.15s;
-            }
-
-            button.add-btn:hover {
-                background: var(--surface-hover);
-                border-color: #2a2a2a;
-            }
-
-            button.add-btn:disabled {
-                opacity: 0.4;
-                cursor: not-allowed;
-            }
-
-            body.drag-over::after {
-                content: "Drop files to upload";
-                position: fixed;
-                inset: 0;
-                background: rgba(26, 24, 22, 0.9);
-                color: var(--primary);
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                font-size: 24px;
-                font-weight: 500;
-                z-index: 2000;
-                pointer-events: none;
-                backdrop-filter: blur(4px);
-                border: 2px dashed var(--primary);
-                margin: var(--space-2);
-                border-radius: var(--radius);
-            }
-
-            main {
-                flex: 1;
-                overflow-y: auto;
-                padding: 0;
-                scrollbar-width: thin;
-                scrollbar-color: var(--surface-hover) transparent;
-            }
-
-            main::-webkit-scrollbar {
-                width: var(--space-1);
-            }
-
-            main::-webkit-scrollbar-track {
-                background: transparent;
-            }
-
-            main::-webkit-scrollbar-thumb {
-                background: var(--surface-hover);
-                border-radius: var(--radius-sm);
-            }
-
-            .queue-section {
-                max-width: 640px;
-                margin: 0 auto;
-                padding: var(--space-2) var(--space-2) var(--space-4);
-            }
-
-            .section-label {
-                font-size: 11px;
-                font-weight: 600;
-                text-transform: uppercase;
-                letter-spacing: 0.1em;
-                color: var(--text-sec);
-                padding: var(--space-3) 0 var(--space-1);
-                margin: 0;
-            }
-
-            .section-label:first-child {
-                padding-top: 0;
-            }
-
-            .queue-list {
-                list-style: none;
-                padding: 0;
-                margin: 0;
-            }
-
-            .queue-item {
-                display: flex;
-                align-items: center;
-                background: transparent;
-                padding: var(--space-1);
-                margin-bottom: 0;
-                border-radius: var(--radius);
-                gap: var(--space-1);
-                transition: background-color 0.15s;
-                cursor: pointer;
-            }
-
-            .queue-item:focus {
-                outline: none;
-                background: var(--surface-hover);
-                box-shadow: inset 0 0 0 1px var(--primary);
-            }
-
-            .queue-item:hover {
-                background: var(--surface-hover);
-            }
-
-            .queue-item.played {
-                opacity: 0.35;
-            }
-
-            .queue-item.played .title {
-                text-decoration-color: var(--text-dim);
-            }
-
-            .queue-item.current {
-                background: var(--surface);
-            }
-
-            .queue-item.current .title {
-                color: var(--text-main);
-            }
-
-            .thumb {
-                width: 64px;
-                height: 48px;
-                background: var(--surface);
-                border-radius: var(--radius-sm);
-                object-fit: cover;
-                flex-shrink: 0;
-            }
-
-            .info {
-                flex: 1;
-                min-width: 0;
-            }
-
-            .title {
-                font-weight: 400;
-                font-size: 14px;
-                color: var(--text-main);
-                line-height: 1.4;
-                display: -webkit-box;
-                -webkit-line-clamp: 2;
-                -webkit-box-orient: vertical;
-                overflow: hidden;
-                margin-bottom: 2px;
-            }
-
-            .meta {
-                font-size: 12px;
-                color: var(--text-sec);
-                font-weight: 400;
-            }
-
-            .delete-btn {
-                background: none;
-                border: none;
-                color: var(--text-sec);
-                cursor: pointer;
-                opacity: 0.5;
-                transition:
-                    opacity 0.15s,
-                    color 0.15s;
-                line-height: 1;
-                min-width: var(--space-3);
-                min-height: var(--space-3);
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                padding: 0;
-                margin: 0;
-            }
-
-            .delete-btn:hover {
-                opacity: 1;
-                color: var(--danger);
-            }
-
-            .delete-btn:active {
-                transform: scale(0.95);
-            }
-
-            .empty-state {
-                text-align: center;
-                color: var(--text-sec);
-                padding: var(--space-4) var(--space-2);
-                font-size: 14px;
-            }
-
-            footer {
-                background: var(--surface);
-                padding: var(--space-2);
-                padding-bottom: max(var(--space-4), env(safe-area-inset-bottom));
-                border-top: 1px solid var(--border);
-                flex-shrink: 0;
-            }
-
-            .now-playing-container {
-                max-width: 640px;
-                margin: 0 auto;
-            }
-
-            .now-playing {
-                display: flex;
-                flex-direction: column;
-                gap: var(--space-1);
-            }
-
-            .track-info {
-                text-align: left;
-            }
-
-            .track-title {
-                font-weight: 500;
-                font-size: 15px;
-                margin-bottom: 2px;
-                white-space: nowrap;
-                overflow: hidden;
-                text-overflow: ellipsis;
-                color: var(--text-main);
-            }
-
-            .track-artist {
-                font-size: 13px;
-                color: var(--text-sec);
-                white-space: nowrap;
-                overflow: hidden;
-                text-overflow: ellipsis;
-            }
-
-            .progress-bar {
-                height: 4px;
-                background: var(--bg);
-                border-radius: 2px;
-                overflow: hidden;
-                cursor: pointer;
-            }
-
-            .progress-fill {
-                height: 100%;
-                background: var(--primary);
-                width: 0%;
-                transition: width 0.3s linear;
-            }
-
-            .time-labels {
-                display: flex;
-                justify-content: space-between;
-                font-size: 11px;
-                color: var(--text-sec);
-                margin-top: 4px;
-            }
-
-            .controls {
-                display: flex;
-                justify-content: center;
-                align-items: center;
-                gap: var(--space-3);
-                padding-top: var(--space-1);
-            }
-
-            .ctrl-btn {
-                background: none;
-                border: none;
-                color: var(--text-main);
-                font-size: 20px;
-                cursor: pointer;
-                padding: 0;
-                min-width: var(--space-4);
-                min-height: var(--space-4);
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                transition:
-                    opacity 0.15s,
-                    transform 0.1s;
-                opacity: 0.8;
-            }
-
-            .ctrl-btn:hover {
-                opacity: 1;
-            }
-
-            .ctrl-btn:active {
-                transform: scale(0.95);
-            }
-
-            .play-btn {
-                font-size: 24px;
-                width: 48px;
-                height: 48px;
-                background: var(--primary);
-                color: var(--bg);
-                border-radius: 50%;
-                opacity: 1;
-            }
-
-            .loading {
-                display: none;
-                position: fixed;
-                inset: 0;
-                background: rgba(0, 0, 0, 0.85);
-                align-items: center;
-                justify-content: center;
-                z-index: 100;
-            }
-            .loading.active {
-                display: flex;
-            }
-            .loading::after {
-                content: "";
-                width: 6px;
-                height: 6px;
-                background: var(--primary);
-                border-radius: 50%;
-                animation: pulse 0.8s ease-in-out infinite alternate;
-            }
-            @keyframes pulse {
-                from {
-                    opacity: 0.2;
-                    transform: scale(1);
-                }
-                to {
-                    opacity: 1;
-                    transform: scale(1.8);
-                }
-            }
-
-            .search-container {
-                position: relative;
-                flex: 1;
-                display: flex;
-            }
-
-            .suggestions {
-                position: absolute;
-                top: 100%;
-                left: 0;
-                right: 0;
-                background: var(--surface);
-                border: 1px solid var(--border);
-                border-radius: var(--radius);
-                margin-top: var(--space-1);
-                max-height: 50vh;
-                overflow-y: auto;
-                z-index: 50;
-                display: none;
-                box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
-            }
-
-            .suggestions.active {
-                display: block;
-            }
-
-            .suggest-text {
-                padding: 12px 16px;
-                cursor: pointer;
-                border-bottom: 1px solid var(--border);
-                transition: background-color 0.15s;
-                font-size: 15px;
-                color: var(--text);
-                white-space: nowrap;
-                overflow: hidden;
-                text-overflow: ellipsis;
-            }
-
-            .suggest-text:last-child {
-                border-bottom: none;
-            }
-
-            .suggest-text.active {
-                background: var(--surface-hover);
-                border-left: 3px solid var(--primary);
-            }
-
-            .suggestion-item {
-                display: flex;
-                gap: var(--space-2);
-                padding: 12px 16px;
-                cursor: pointer;
-                border-bottom: 1px solid var(--border);
-                transition: background-color 0.15s;
-                align-items: center;
-                min-height: 48px;
-            }
-
-            .suggestion-item:last-child {
-                border-bottom: none;
-            }
-
-            .suggestion-item.active {
-                background: var(--surface-hover);
-                border-left: 3px solid var(--primary);
-            }
-
-            .sug-info {
-                flex: 1;
-                min-width: 0;
-                display: flex;
-                flex-direction: column;
-                justify-content: center;
-                padding-left: var(--space-1);
-            }
-
-            .sug-artist {
-                font-size: 11px;
-                color: var(--text-dim);
-                margin-top: 2px;
-                white-space: nowrap;
-                overflow: hidden;
-                text-overflow: ellipsis;
-            }
-
-            .sug-duration {
-                font-size: 12px;
-                color: var(--text-sec);
-                font-variant-numeric: tabular-nums;
-                margin-left: auto;
-                flex-shrink: 0;
-                padding-left: var(--space-2);
-            }
-
-            .loading-item {
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                padding: var(--space-2);
-                color: var(--text-sec);
-                font-size: 13px;
-                font-style: italic;
-            }
-
-            .toast {
-                position: fixed;
-                bottom: 120px;
-                left: 50%;
-                transform: translateX(-50%);
-                background: var(--surface-hover);
-                padding: var(--space-1) var(--space-2);
-                border-radius: 20px;
-                opacity: 0;
-                transition: opacity 0.3s;
-                pointer-events: none;
-                font-size: 13px;
-                border: 1px solid var(--border);
-                z-index: 101;
-            }
-            .toast.show {
-                opacity: 1;
-            }
-            .toast.error {
-                background: rgba(100, 40, 40, 0.95);
-                border-color: var(--danger);
-            }
-
-            @media (max-width: 640px) {
-                .queue-section {
-                    padding: var(--space-1) var(--space-2) var(--space-3);
-                }
-
-                .thumb {
-                    width: 56px;
-                    height: 42px;
-                }
-            }
-        </style>
-    </head>
-    <body>
-        <header>
-            <form class="input-group" id="addForm">
-                <div class="search-container">
-                    <input
-                        type="text"
-                        id="urlInput"
-                        placeholder="Paste URL or search..."
-                        autocomplete="off"
-                        autofocus
-                    />
-                    <div class="suggestions" id="suggestions"></div>
-                </div>
-                <input type="file" id="fileInput" multiple style="display: none" />
-            </form>
-        </header>
-
-        <main>
-            <div class="queue-section">
-                <ul class="queue-list" id="queueList"></ul>
-            </div>
-        </main>
-
-        <footer>
-            <div class="now-playing-container">
-                <div class="now-playing">
-                    <div class="track-info">
-                        <div class="track-title" id="npTitle">Idle</div>
-                        <div class="track-artist" id="npArtist"></div>
-                    </div>
-
-                    <div class="progress-bar" id="progressBar">
-                        <div class="progress-fill" id="progFill"></div>
-                    </div>
-
-                    <div class="time-labels">
-                        <span id="currTime">0:00</span>
-                        <span id="durTime">0:00</span>
-                    </div>
-
-                    <div class="controls">
-                        <button class="ctrl-btn" id="prevBtn" aria-label="Previous">
-                            <svg
-                                xmlns="http://www.w3.org/2000/svg"
-                                width="20"
-                                height="20"
-                                viewBox="0 0 24 24"
-                                fill="none"
-                                stroke="currentColor"
-                                stroke-width="2"
-                                stroke-linecap="round"
-                                stroke-linejoin="round"
-                            >
-                                <path
-                                    d="M17.971 4.285A2 2 0 0 1 21 6v12a2 2 0 0 1-3.029 1.715l-9.997-5.998a2 2 0 0 1-.003-3.432z"
-                                />
-                                <path d="M3 20V4" />
-                            </svg>
-                        </button>
-                        <button class="ctrl-btn play-btn" id="playPauseBtn" aria-label="Play">
-                            <svg
-                                xmlns="http://www.w3.org/2000/svg"
-                                width="24"
-                                height="24"
-                                viewBox="0 0 24 24"
-                                fill="none"
-                                stroke="currentColor"
-                                stroke-width="2"
-                                stroke-linecap="round"
-                                stroke-linejoin="round"
-                                class="play-icon"
-                            >
-                                <path
-                                    d="M5 5a2 2 0 0 1 3.008-1.728l11.997 6.998a2 2 0 0 1 .003 3.432l-11.997 7.001A2 2 0 0 1 5 19z"
-                                /></svg
-                            ><svg
-                                xmlns="http://www.w3.org/2000/svg"
-                                width="24"
-                                height="24"
-                                viewBox="0 0 24 24"
-                                fill="none"
-                                stroke="currentColor"
-                                stroke-width="2"
-                                stroke-linecap="round"
-                                stroke-linejoin="round"
-                                class="pause-icon"
-                                style="display: none"
-                            >
-                                <rect x="5" y="4" width="5" height="16" rx="2" />
-                                <rect x="14" y="4" width="5" height="16" rx="2" />
-                            </svg>
-                        </button>
-                        <button class="ctrl-btn" id="nextBtn" aria-label="Next">
-                            <svg
-                                xmlns="http://www.w3.org/2000/svg"
-                                width="20"
-                                height="20"
-                                viewBox="0 0 24 24"
-                                fill="none"
-                                stroke="currentColor"
-                                stroke-width="2"
-                                stroke-linecap="round"
-                                stroke-linejoin="round"
-                            >
-                                <path
-                                    d="M5.029 4.285A2 2 0 0 0 3 6v12a2 2 0 0 0 3.029 1.715l9.997-5.998a2 2 0 0 0 .003-3.432z"
-                                />
-                                <path d="M21 20V4" />
-                            </svg>
-                        </button>
-                    </div>
-                </div>
-            </div>
-        </footer>
-
-        <div class="loading" id="loader"></div>
-        <div class="toast" id="toast">Message</div>
-
-        <script>
-            const PLACEHOLDER =
-                "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI2NCIgaGVpZ2h0PSI0OCIgc3R5bGU9ImJhY2tncm91bmQ6IzE0MTQxNCI+PC9zdmc+";
-
-            let prev = { queueKey: null, npKey: null, status: null };
-
-            const $ = (id) => document.getElementById(id);
-            const npTitle = $("npTitle");
-            const npArtist = $("npArtist");
-            const progFill = $("progFill");
-            const playBtn = $("playPauseBtn");
-            const queueList = $("queueList");
-            const currTimeE = $("currTime");
-            const durTimeE = $("durTime");
-            const form = $("addForm");
-            const urlInput = $("urlInput");
-            const fileInput = $("fileInput");
-            const suggestions = $("suggestions");
-            const loader = $("loader");
-            const toastEl = $("toast");
-
-            let suggestTimeout;
-            let suggestAbort = null;
-            let searchAbort = null;
-            let currentFocusIndex = -1;
-            let dropdownMode = ""; // "suggest" | "tracks"
-
-            urlInput.addEventListener("input", (e) => {
-                const q = e.target.value.trim();
-                clearTimeout(suggestTimeout);
-                if (suggestAbort) suggestAbort.abort();
-                if (searchAbort) searchAbort.abort();
-
-                if (!q || q.startsWith("http")) {
-                    closeSuggestions();
-                    return;
-                }
-
-                suggestTimeout = setTimeout(() => fetchSuggestions(q), 150);
-            });
-
-            async function fetchSuggestions(q) {
-                suggestAbort = new AbortController();
-                try {
-                    const res = await fetch("/suggest?q=" + encodeURIComponent(q), {
-                        signal: suggestAbort.signal,
-                    });
-                    if (!res.ok) throw new Error();
-                    const items = await res.json();
-                    renderTypeahead(items);
-                } catch (err) {
-                    if (err.name !== "AbortError") {
-                        closeSuggestions();
-                    }
-                }
-            }
-
-            async function searchTracks(q) {
-                if (searchAbort) searchAbort.abort();
-                searchAbort = new AbortController();
-                dropdownMode = "tracks";
-                currentFocusIndex = -1;
-                suggestions.innerHTML = '<div class="loading-item">Searching...</div>';
-                suggestions.classList.add("active");
-                try {
-                    const res = await fetch("/search?q=" + encodeURIComponent(q), {
-                        signal: searchAbort.signal,
-                    });
-                    if (!res.ok) throw new Error();
-                    const tracks = await res.json();
-                    renderTrackResults(tracks);
-                } catch (err) {
-                    if (err.name !== "AbortError") {
-                        suggestions.innerHTML = '<div class="loading-item">Search failed</div>';
-                    }
-                }
-            }
-
-            function renderTypeahead(items) {
-                if (!items || !items.length) {
-                    closeSuggestions();
-                    return;
-                }
-                dropdownMode = "suggest";
-                currentFocusIndex = -1;
-                suggestions.innerHTML = items
-                    .map((s) => '<div class="suggest-text">' + escHTML(s) + "</div>")
-                    .join("");
-                suggestions.classList.add("active");
-            }
-
-            function renderTrackResults(tracks) {
-                if (!tracks || !tracks.length) {
-                    suggestions.innerHTML = '<div class="loading-item">No results found</div>';
-                    return;
-                }
-                dropdownMode = "tracks";
-                currentFocusIndex = -1;
-                suggestions.innerHTML = tracks
-                    .map((t) => {
-                        const title = escHTML(t.title);
-                        const artist = escHTML(t.artist || t.uploader);
-                        let dur = "";
-                        if (t.duration > 0) {
-                            dur = fmtTime(t.duration);
-                        } else if (t.is_music) {
-                            dur = "Song";
-                        }
-
-                        const url = escHTML(t.webpage_url || t.url);
-                        return (
-                            '<div class="suggestion-item" data-url="' +
-                            url +
-                            '">' +
-                            '<div class="sug-info">' +
-                            '<div class="sug-title">' +
-                            title +
-                            "</div>" +
-                            (artist ? '<div class="sug-artist">' + artist + "</div>" : "") +
-                            "</div>" +
-                            (dur ? '<div class="sug-duration">' + dur + "</div>" : "") +
-                            "</div>"
-                        );
-                    })
-                    .join("");
-            }
-
-            function closeSuggestions() {
-                suggestions.classList.remove("active");
-                suggestions.innerHTML = "";
-                dropdownMode = "";
-                currentFocusIndex = -1;
-            }
-
-            urlInput.addEventListener("keydown", (e) => {
-                const items = suggestions.querySelectorAll(".suggest-text, .suggestion-item");
-                const isActive = suggestions.classList.contains("active");
-
-                if (e.key === "ArrowDown" || (e.key === "Tab" && !e.shiftKey)) {
-                    if (items.length && isActive) {
-                        e.preventDefault();
-                        currentFocusIndex = (currentFocusIndex + 1) % items.length;
-                        updateSelection(items);
-                    }
-                } else if (e.key === "ArrowUp" || (e.key === "Tab" && e.shiftKey)) {
-                    if (items.length && isActive) {
-                        e.preventDefault();
-                        if (currentFocusIndex === -1) {
-                            currentFocusIndex = items.length - 1;
-                        } else {
-                            currentFocusIndex =
-                                (currentFocusIndex - 1 + items.length) % items.length;
-                        }
-                        updateSelection(items);
-                    }
-                } else if (e.key === "Enter") {
-                    if (isActive && currentFocusIndex > -1 && items.length) {
-                        e.preventDefault();
-                        items[currentFocusIndex].click();
-                    } else if (isActive && dropdownMode === "suggest") {
-                        e.preventDefault();
-                        const q = urlInput.value.trim();
-                        if (q && !q.startsWith("http")) {
-                            searchTracks(q);
-                        }
-                    }
-                } else if (e.key === "Escape") {
-                    if (isActive) {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        closeSuggestions();
-                    } else {
-                        e.target.blur();
-                    }
-                }
-            });
-
-            function updateSelection(items) {
-                items.forEach((item, idx) => {
-                    if (idx === currentFocusIndex) {
-                        item.classList.add("active");
-                        item.scrollIntoView({ block: "nearest" });
-                    } else {
-                        item.classList.remove("active");
-                    }
-                });
-            }
-
-            suggestions.addEventListener("click", (e) => {
-                e.stopPropagation();
-                const textItem = e.target.closest(".suggest-text");
-                if (textItem) {
-                    const q = textItem.textContent;
-                    urlInput.value = q;
-                    searchTracks(q);
-                    return;
-                }
-                const trackItem = e.target.closest(".suggestion-item");
-                if (trackItem) {
-                    addToQueue(trackItem.dataset.url);
-                    closeSuggestions();
-                }
-            });
-
-            document.addEventListener("click", (e) => {
-                if (!e.target.closest(".search-container")) {
-                    closeSuggestions();
-                }
-            });
-
-            $("prevBtn").onclick = () => playback("previous");
-            $("nextBtn").onclick = () => playback("skip");
-            playBtn.onclick = () => playback(prev.status === "playing" ? "pause" : "resume");
-
-            function fmtTime(s) {
-                if (!s || isNaN(s) || s < 0) return "0:00";
-                const m = Math.floor(s / 60);
-                return m + ":" + String(Math.floor(s % 60)).padStart(2, "0");
-            }
-
-            function escHTML(s) {
-                const d = document.createElement("div");
-                d.textContent = s;
-                return d.innerHTML;
-            }
-
-            function itemHTML(item, cls) {
-                const meta = item.metadata || {};
-                const title = escHTML(meta.title || item.title || item.filename);
-                const uploader = escHTML(meta.uploader || "");
-                const thumb = meta.thumbnail || PLACEHOLDER;
-                let dur = "";
-                const dVal = meta.duration || item.duration;
-                if (dVal > 0) {
-                    dur = fmtTime(dVal);
-                }
-                const parts = [uploader, dur].filter(Boolean).join(" · ");
-                return (
-                    '<li class="queue-item ' +
-                    cls +
-                    '" tabindex="0" role="button" data-idx="' +
-                    item.index +
-                    '">' +
-                    '<img src="' +
-                    thumb +
-                    '" class="thumb" loading="lazy" onerror="this.src=\'' +
-                    PLACEHOLDER +
-                    "'\">" +
-                    '<div class="info"><div class="title">' +
-                    title +
-                    '</div><div class="meta">' +
-                    parts +
-                    "</div></div>" +
-                    '<button class="delete-btn" data-idx="' +
-                    item.index +
-                    '" aria-label="Remove"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="m15 9-6 6"/><path d="m9 9 6 6"/></svg></button></li>'
-                );
-            }
-
-            function renderQueue(data) {
-                const focused = document.activeElement;
-                let focusIdx = null;
-                if (focused && focused.classList.contains("queue-item")) {
-                    focusIdx = focused.dataset.idx;
-                }
-
-                const np = data.now_playing;
-                const history = (data.history || []).slice(-3);
-                const upcoming = data.upcoming || [];
-
-                if (!np && !history.length && !upcoming.length) {
-                    queueList.innerHTML =
-                        '<div class="empty-state">Queue is empty. Paste a URL or search above.</div>';
-                    return;
-                }
-
-                let html = "";
-
-                if (history.length) {
-                    html += '<li class="section-label">Played</li>';
-                    for (const item of history) html += itemHTML(item, "played");
-                }
-
-                if (np) {
-                    html += '<li class="section-label">Now Playing</li>';
-                    html += itemHTML(np, "current");
-                }
-
-                if (upcoming.length) {
-                    html += '<li class="section-label">Up Next</li>';
-                    for (const item of upcoming) html += itemHTML(item, "");
-                }
-
-                queueList.innerHTML = html;
-
-                if (focusIdx !== null) {
-                    const newItem = queueList.querySelector(
-                        '.queue-item[data-idx="' + focusIdx + '"]',
-                    );
-                    if (newItem) newItem.focus();
-                }
-            }
-
-            function renderNowPlaying(data) {
-                const np = data.now_playing;
-                if (np) {
-                    const meta = np.metadata || {};
-                    npTitle.textContent = meta.title || np.title || np.filename;
-                    npArtist.textContent = meta.uploader || "";
-                } else {
-                    npTitle.textContent = data.status === "idle" ? "Idle" : "Loading...";
-                    npArtist.textContent = "";
-                }
-            }
-
-            function renderProgress(data) {
-                const pct = data.duration > 0 ? (data.current_time / data.duration) * 100 : 0;
-                progFill.style.width = pct + "%";
-                currTimeE.textContent = fmtTime(data.current_time);
-                durTimeE.textContent = fmtTime(data.duration);
-            }
-
-            function renderControls(status) {
-                const playIcon = playBtn.querySelector(".play-icon");
-                const pauseIcon = playBtn.querySelector(".pause-icon");
-                if (status === "playing") {
-                    playIcon.style.display = "none";
-                    pauseIcon.style.display = "block";
-                    playBtn.setAttribute("aria-label", "Pause");
-                } else {
-                    playIcon.style.display = "block";
-                    pauseIcon.style.display = "none";
-                    playBtn.setAttribute("aria-label", "Play");
-                }
-            }
-
-            function makeQueueKey(data) {
-                const ids = (data.queue || []).map((i) => i.index + ":" + i.filename);
-                return data.current_index + "|" + ids.join(",");
-            }
-
-            function makeNpKey(data) {
-                const np = data.now_playing;
-                return np ? np.index + ":" + np.filename : "";
-            }
-
-            function onState(data) {
-                renderProgress(data);
-
-                const qk = makeQueueKey(data);
-                if (qk !== prev.queueKey) {
-                    prev.queueKey = qk;
-                    renderQueue(data);
-                }
-
-                const nk = makeNpKey(data);
-                if (nk !== prev.npKey) {
-                    prev.npKey = nk;
-                    renderNowPlaying(data);
-                }
-
-                if (data.status !== prev.status) {
-                    prev.status = data.status;
-                    renderControls(data.status);
-                }
-            }
-
-            let evtSource;
-            function connectSSE() {
-                if (evtSource) evtSource.close();
-                loader.classList.add("active");
-                evtSource = new EventSource("/events");
-                evtSource.onmessage = (e) => {
-                    loader.classList.remove("active");
-                    onState(JSON.parse(e.data));
-                };
-                evtSource.onerror = () => {
-                    if (evtSource.readyState === EventSource.CLOSED) {
-                        setTimeout(connectSSE, 3000);
-                    }
-                };
-            }
-
-            connectSSE();
-
-            document.addEventListener("visibilitychange", () => {
-                if (
-                    document.visibilityState === "visible" &&
-                    evtSource.readyState !== EventSource.OPEN
-                ) {
-                    connectSSE();
-                }
-            });
-
-            queueList.addEventListener("click", (e) => {
-                const btn = e.target.closest(".delete-btn");
-                if (btn) {
-                    removeItem(parseInt(btn.dataset.idx, 10));
-                    e.stopPropagation();
-                    return;
-                }
-                const item = e.target.closest(".queue-item");
-                if (item) playItem(parseInt(item.dataset.idx, 10));
-            });
-
-            queueList.addEventListener("keydown", (e) => {
-                const item = e.target.closest(".queue-item");
-                if (!item) return;
-
-                if (e.key === "Enter") {
-                    e.preventDefault();
-                    playItem(parseInt(item.dataset.idx, 10));
-                } else if (e.key === "Delete" || e.key === "Backspace") {
-                    e.preventDefault();
-                    removeItem(parseInt(item.dataset.idx, 10));
-                } else if (e.key === "ArrowDown") {
-                    e.preventDefault();
-                    let next = item.nextElementSibling;
-                    while (next && !next.classList.contains("queue-item")) {
-                        next = next.nextElementSibling;
-                    }
-                    if (next) next.focus();
-                } else if (e.key === "ArrowUp") {
-                    e.preventDefault();
-                    let prev = item.previousElementSibling;
-                    while (prev && !prev.classList.contains("queue-item")) {
-                        prev = prev.previousElementSibling;
-                    }
-                    if (prev) prev.focus();
-                }
-            });
-
-            form.onsubmit = async (e) => {
-                e.preventDefault();
-                const val = urlInput.value.trim();
-                if (!val) return;
-
-                if (val.match(/^https?:\/\//i)) {
-                    addToQueue(val);
-                } else {
-                    searchTracks(val);
-                }
-            };
-
-            fileInput.onchange = (e) => handleFiles(e.target.files);
-
-            function handleFiles(files) {
-                if (!files || !files.length) return;
-                Array.from(files).forEach((file) => uploadFile(file));
-                fileInput.value = "";
-            }
-
-            async function uploadFile(file) {
-                const formData = new FormData();
-                formData.append("file", file);
-
-                showToast(`Uploading ${file.name}...`);
-                try {
-                    const res = await fetch("/upload", {
-                        method: "POST",
-                        body: formData,
-                    });
-                    if (!res.ok) throw new Error();
-                    showToast(`Uploaded ${file.name}`);
-                } catch (err) {
-                    showToast(`Failed to upload ${file.name}`, true);
-                }
-            }
-
-            let dragCounter = 0;
-            document.body.addEventListener("dragenter", (e) => {
-                e.preventDefault();
-                dragCounter++;
-                document.body.classList.add("drag-over");
-            });
-            document.body.addEventListener("dragover", (e) => e.preventDefault());
-            document.body.addEventListener("dragleave", (e) => {
-                dragCounter--;
-                if (dragCounter <= 0) document.body.classList.remove("drag-over");
-            });
-            document.body.addEventListener("drop", (e) => {
-                e.preventDefault();
-                dragCounter = 0;
-                document.body.classList.remove("drag-over");
-                handleFiles(e.dataTransfer.files);
-            });
-
-            async function addToQueue(url) {
-                loader.classList.add("active");
-                urlInput.blur();
-                try {
-                    const res = await fetch("/queue", {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({ url }),
-                    });
-                    if (!res.ok) throw new Error(await res.text());
-                    urlInput.value = "";
-                    urlInput.focus();
-                    showToast("Added to queue");
-                } catch (err) {
-                    showToast(err.message, true);
-                } finally {
-                    loader.classList.remove("active");
-                }
-            }
-
-            async function playback(action) {
-                try {
-                    await fetch("/playback", {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({ action }),
-                    });
-                } catch (err) {
-                    console.error(err);
-                }
-            }
-
-            async function playItem(index) {
-                try {
-                    await fetch("/playback", {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({ action: "play", index }),
-                    });
-                } catch (err) {
-                    console.error(err);
-                }
-            }
-
-            async function removeItem(index) {
-                try {
-                    await fetch("/queue/" + index, { method: "DELETE" });
-                } catch (err) {
-                    console.error(err);
-                }
-            }
-            function showToast(msg, isError) {
-                toastEl.textContent = msg;
-                toastEl.className = "toast show" + (isError ? " error" : "");
-                setTimeout(() => (toastEl.className = "toast"), 3000);
-            }
-
-            document.addEventListener("keydown", (e) => {
-                if (e.target.tagName === "INPUT") {
-                    return;
-                }
-
-                if ((e.ctrlKey || e.metaKey) && e.key === "o") {
-                    e.preventDefault();
-                    fileInput.click();
-                    return;
-                }
-
-                switch (e.key) {
-                    case " ":
-                        e.preventDefault();
-                        playback(prev.status === "playing" ? "pause" : "resume");
-                        break;
-                    case "u":
-                        e.preventDefault();
-                        fileInput.click();
-                        break;
-                    case "ArrowLeft":
-                        e.preventDefault();
-                        playback("previous");
-                        break;
-                    case "ArrowRight":
-                        e.preventDefault();
-                        playback("skip");
-                        break;
-                    case "Delete":
-                        e.preventDefault();
-                        if (prev.npKey) {
-                            const idx = parseInt(prev.npKey.split(":")[0], 10);
-                            if (!isNaN(idx)) {
-                                removeItem(idx);
-                            }
-                        }
-                        break;
-                    case "/":
-                        e.preventDefault();
-                        urlInput.focus();
-                        break;
-                }
-            });
-
-            document.addEventListener("paste", (e) => {
-                const items = (e.clipboardData || window.clipboardData).items;
-                const files = [];
-                if (items) {
-                    for (let i = 0; i < items.length; i++) {
-                        if (items[i].kind === "file") {
-                            const f = items[i].getAsFile();
-                            if (f) files.push(f);
-                        }
-                    }
-                }
-                if (files.length > 0) {
-                    e.preventDefault();
-                    handleFiles(files);
-                    return;
-                }
-
-                const pasted = (e.clipboardData || window.clipboardData).getData("text");
-                const urlMatch = pasted.match(/https?:\/\/[^\s]+/);
-                if (!urlMatch) return;
-
-                e.preventDefault();
-                const url = urlMatch[0];
-
-                if (e.target.tagName === "INPUT") {
-                    urlInput.value = url;
-                }
-
-                addToQueue(url);
-            });
-        </script>
-    </body>
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"
+    />
+    <title>Skaldi</title>
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='%23d4af37' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M2 10v3'/%3E%3Cpath d='M6 6v11'/%3E%3Cpath d='M10 3v18'/%3E%3Cpath d='M14 8v7'/%3E%3Cpath d='M18 5v13'/%3E%3Cpath d='M22 10v3'/%3E%3C/svg%3E"
+      type="image/svg+xml"
+    />
+    <style>
+      :root {
+        --bg: #1a1816;
+        --surface: #2d2824;
+        --surface-hover: #3d3630;
+        --primary: #d4af37;
+        --text-main: #f4ecd8;
+        --text-sec: #a89f94;
+        --text-dim: #6d645c;
+        --danger: #b22222;
+        --border: #1f1f1f;
+        --space-1: 8px;
+        --space-2: 16px;
+        --space-3: 24px;
+        --space-4: 32px;
+        --radius-sm: 4px;
+        --radius: 8px;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        background-color: var(--bg);
+        color: var(--text-main);
+        font-family:
+          -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", Roboto, "Helvetica Neue",
+          sans-serif;
+        margin: 0;
+        padding: 0;
+        height: 100dvh;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+        font-size: 14px;
+        line-height: 1.5;
+        -webkit-font-smoothing: antialiased;
+      }
+
+      header {
+        padding: var(--space-2);
+        background: var(--bg);
+        border-bottom: 1px solid var(--border);
+        flex-shrink: 0;
+      }
+
+      .input-group {
+        display: flex;
+        max-width: 640px;
+        margin: 0 auto;
+        width: 100%;
+        position: relative;
+      }
+
+      input[type="text"] {
+        flex: 1;
+        padding: var(--space-2);
+        border-radius: var(--radius);
+        border: 1px solid var(--border);
+        background: var(--surface);
+        color: var(--text-main);
+        font-size: 18px;
+        transition:
+          border-color 0.15s,
+          background-color 0.15s,
+          box-shadow 0.15s;
+        height: 54px;
+      }
+
+      input[type="text"]:hover {
+        border-color: #2a2a2a;
+      }
+
+      input[type="text"]:focus {
+        outline: none;
+        border-color: var(--primary);
+        background: var(--surface-hover);
+        box-shadow: 0 0 0 3px rgba(212, 175, 55, 0.1);
+      }
+
+      input[type="text"]::placeholder {
+        color: var(--text-sec);
+      }
+
+      button.add-btn {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        color: var(--text-main);
+        font-size: 14px;
+        font-weight: 500;
+        padding: 0 var(--space-2);
+        cursor: pointer;
+        transition:
+          background-color 0.15s,
+          border-color 0.15s;
+      }
+
+      button.add-btn:hover {
+        background: var(--surface-hover);
+        border-color: #2a2a2a;
+      }
+
+      button.add-btn:disabled {
+        opacity: 0.4;
+        cursor: not-allowed;
+      }
+
+      body.drag-over::after {
+        content: "Drop files to upload";
+        position: fixed;
+        inset: 0;
+        background: rgba(26, 24, 22, 0.9);
+        color: var(--primary);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 24px;
+        font-weight: 500;
+        z-index: 2000;
+        pointer-events: none;
+        backdrop-filter: blur(4px);
+        border: 2px dashed var(--primary);
+        margin: var(--space-2);
+        border-radius: var(--radius);
+      }
+
+      main {
+        flex: 1;
+        overflow-y: auto;
+        padding: 0;
+        scrollbar-width: thin;
+        scrollbar-color: var(--surface-hover) transparent;
+      }
+
+      main::-webkit-scrollbar {
+        width: var(--space-1);
+      }
+
+      main::-webkit-scrollbar-track {
+        background: transparent;
+      }
+
+      main::-webkit-scrollbar-thumb {
+        background: var(--surface-hover);
+        border-radius: var(--radius-sm);
+      }
+
+      .queue-section {
+        max-width: 640px;
+        margin: 0 auto;
+        padding: var(--space-2) var(--space-2) var(--space-4);
+      }
+
+      .section-label {
+        font-size: 11px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.1em;
+        color: var(--text-sec);
+        padding: var(--space-3) 0 var(--space-1);
+        margin: 0;
+      }
+
+      .section-label:first-child {
+        padding-top: 0;
+      }
+
+      .queue-list {
+        list-style: none;
+        padding: 0;
+        margin: 0;
+      }
+
+      .queue-item {
+        display: flex;
+        align-items: center;
+        background: transparent;
+        padding: var(--space-1);
+        margin-bottom: 0;
+        border-radius: var(--radius);
+        gap: var(--space-1);
+        transition: background-color 0.15s;
+        cursor: pointer;
+      }
+
+      .queue-item:focus {
+        outline: none;
+        background: var(--surface-hover);
+        box-shadow: inset 2px 0 0 0 var(--primary);
+      }
+
+      .queue-item:hover {
+        background: var(--surface-hover);
+      }
+
+      .queue-item.played {
+        opacity: 0.35;
+      }
+
+      .queue-item.played .title {
+        text-decoration-color: var(--text-dim);
+      }
+
+      .queue-item.current {
+        background: var(--surface);
+      }
+
+      .queue-item.current .title {
+        color: var(--text-main);
+      }
+
+      .thumb {
+        width: 64px;
+        height: 48px;
+        background: var(--surface);
+        border-radius: var(--radius-sm);
+        object-fit: cover;
+        flex-shrink: 0;
+      }
+
+      .info {
+        flex: 1;
+        min-width: 0;
+      }
+
+      .title {
+        font-weight: 400;
+        font-size: 14px;
+        color: var(--text-main);
+        line-height: 1.4;
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+        margin-bottom: 2px;
+      }
+
+      .meta {
+        font-size: 12px;
+        color: var(--text-sec);
+        font-weight: 400;
+      }
+
+      .delete-btn {
+        background: none;
+        border: none;
+        color: var(--text-sec);
+        cursor: pointer;
+        opacity: 0.5;
+        transition:
+          opacity 0.15s,
+          color 0.15s;
+        line-height: 1;
+        min-width: var(--space-3);
+        min-height: var(--space-3);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 0;
+        margin: 0;
+      }
+
+      .delete-btn:hover {
+        opacity: 1;
+        color: var(--danger);
+      }
+
+      .delete-btn:active {
+        transform: scale(0.95);
+      }
+
+      .empty-state {
+        text-align: center;
+        color: var(--text-sec);
+        padding: var(--space-4) var(--space-2);
+        font-size: 14px;
+      }
+
+      footer {
+        background: var(--surface);
+        padding: var(--space-2);
+        padding-bottom: max(var(--space-4), env(safe-area-inset-bottom));
+        border-top: 1px solid var(--border);
+        flex-shrink: 0;
+      }
+
+      .now-playing-container {
+        max-width: 640px;
+        margin: 0 auto;
+      }
+
+      .now-playing {
+        display: flex;
+        flex-direction: column;
+        gap: var(--space-1);
+      }
+
+      .track-info {
+        text-align: left;
+      }
+
+      .track-title {
+        font-weight: 500;
+        font-size: 15px;
+        margin-bottom: 2px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        color: var(--text-main);
+      }
+
+      .track-artist {
+        font-size: 13px;
+        color: var(--text-sec);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      .progress-bar {
+        height: 4px;
+        background: var(--bg);
+        border-radius: 2px;
+        overflow: hidden;
+        cursor: pointer;
+      }
+
+      .progress-fill {
+        height: 100%;
+        background: var(--primary);
+        width: 0%;
+        transition: width 0.3s linear;
+      }
+
+      .time-labels {
+        display: flex;
+        justify-content: space-between;
+        font-size: 11px;
+        color: var(--text-sec);
+        margin-top: 4px;
+      }
+
+      .controls {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        gap: var(--space-3);
+        padding-top: var(--space-1);
+      }
+
+      .ctrl-btn {
+        background: none;
+        border: none;
+        color: var(--text-main);
+        font-size: 20px;
+        cursor: pointer;
+        padding: 0;
+        min-width: var(--space-4);
+        min-height: var(--space-4);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        transition:
+          opacity 0.15s,
+          transform 0.1s;
+        opacity: 0.8;
+      }
+
+      .ctrl-btn:hover {
+        opacity: 1;
+      }
+
+      .ctrl-btn:active {
+        transform: scale(0.95);
+      }
+
+      .play-btn {
+        font-size: 24px;
+        width: 48px;
+        height: 48px;
+        background: var(--primary);
+        color: var(--bg);
+        border-radius: 50%;
+        opacity: 1;
+      }
+
+      @keyframes shimmer {
+        0% {
+          opacity: 0.3;
+        }
+        50% {
+          opacity: 0.6;
+        }
+        100% {
+          opacity: 0.3;
+        }
+      }
+
+      .queue-item.pending {
+        opacity: 0.6;
+        cursor: default;
+      }
+
+      .queue-item.pending .thumb {
+        animation: shimmer 1.5s ease-in-out infinite;
+      }
+
+      .queue-item.pending .title {
+        color: var(--text-sec);
+      }
+
+      .queue-item.pending .meta {
+        color: var(--text-dim);
+      }
+
+      .queue-item.pending.error {
+        opacity: 0.4;
+      }
+
+      .queue-item.pending.error .title {
+        color: var(--danger);
+      }
+
+      .queue-item.pending .delete-btn {
+        display: none;
+      }
+
+      .search-container {
+        position: relative;
+        flex: 1;
+        display: flex;
+      }
+
+      .suggestions {
+        position: absolute;
+        top: 100%;
+        left: 0;
+        right: 0;
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        margin-top: var(--space-1);
+        max-height: 50vh;
+        overflow-y: auto;
+        z-index: 50;
+        display: none;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+      }
+
+      .suggestions.active {
+        display: block;
+      }
+
+      .suggest-text {
+        padding: 12px 16px;
+        cursor: pointer;
+        border-bottom: 1px solid var(--border);
+        transition: background-color 0.15s;
+        font-size: 15px;
+        color: var(--text);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      .suggest-text:last-child {
+        border-bottom: none;
+      }
+
+      .suggest-text.active {
+        background: var(--surface-hover);
+        border-left: 2px solid var(--primary);
+        padding-left: 14px;
+      }
+
+      .suggestion-item {
+        display: flex;
+        gap: var(--space-2);
+        padding: 8px 16px;
+        cursor: pointer;
+        border-bottom: 1px solid var(--border);
+        transition: background-color 0.15s;
+        align-items: center;
+        min-height: 56px;
+      }
+
+      .suggestion-item:last-child {
+        border-bottom: none;
+      }
+
+      .suggestion-item.active {
+        background: var(--surface-hover);
+        border-left: 2px solid var(--primary);
+        padding-left: 14px;
+      }
+
+      .sug-thumb {
+        width: 48px;
+        height: 36px;
+        background: var(--bg);
+        border-radius: var(--radius-sm);
+        object-fit: cover;
+        flex-shrink: 0;
+      }
+
+      .sug-info {
+        flex: 1;
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        gap: 4px;
+      }
+
+      .sug-title {
+        font-size: 14px;
+        color: var(--text-main);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        font-weight: 500;
+        line-height: 1.2;
+      }
+
+      .sug-artist {
+        font-size: 12px;
+        color: var(--text-sec);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        line-height: 1.2;
+      }
+
+      .music-badge {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 14px;
+        height: 14px;
+        color: var(--primary);
+      }
+
+      .sug-duration {
+        font-size: 12px;
+        color: var(--text-dim);
+        font-variant-numeric: tabular-nums;
+        margin-left: auto;
+        flex-shrink: 0;
+        padding-left: var(--space-2);
+      }
+
+      .loading-item {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: var(--space-2);
+        color: var(--text-sec);
+        font-size: 13px;
+        font-style: italic;
+      }
+
+      .toast {
+        position: fixed;
+        bottom: 120px;
+        left: 50%;
+        transform: translateX(-50%);
+        background: var(--surface-hover);
+        padding: var(--space-1) var(--space-2);
+        border-radius: 20px;
+        opacity: 0;
+        transition: opacity 0.3s;
+        pointer-events: none;
+        font-size: 13px;
+        border: 1px solid var(--border);
+        z-index: 101;
+      }
+      .toast.show {
+        opacity: 1;
+      }
+      .toast.error {
+        background: rgba(100, 40, 40, 0.95);
+        border-color: var(--danger);
+      }
+
+      @media (max-width: 640px) {
+        .queue-section {
+          padding: var(--space-1) var(--space-2) var(--space-3);
+        }
+
+        .thumb {
+          width: 56px;
+          height: 42px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <form class="input-group" id="addForm">
+        <div class="search-container">
+          <input
+            type="text"
+            id="urlInput"
+            placeholder="Paste URL or search..."
+            autocomplete="off"
+            autofocus
+          />
+          <div class="suggestions" id="suggestions"></div>
+        </div>
+        <input type="file" id="fileInput" multiple style="display: none" />
+      </form>
+    </header>
+
+    <main>
+      <div class="queue-section">
+        <ul class="queue-list" id="queueList"></ul>
+      </div>
+    </main>
+
+    <footer>
+      <div class="now-playing-container">
+        <div class="now-playing">
+          <div class="track-info">
+            <div class="track-title" id="npTitle">Idle</div>
+            <div class="track-artist" id="npArtist"></div>
+          </div>
+
+          <div class="progress-bar" id="progressBar">
+            <div class="progress-fill" id="progFill"></div>
+          </div>
+
+          <div class="time-labels">
+            <span id="currTime">0:00</span>
+            <span id="durTime">0:00</span>
+          </div>
+
+          <div class="controls">
+            <button class="ctrl-btn" id="prevBtn" aria-label="Previous">
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                width="20"
+                height="20"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                class="lucide lucide-skip-back"
+              >
+                <polygon points="19 20 9 12 19 4 19 20" />
+                <line x1="5" x2="5" y1="19" y2="5" />
+              </svg>
+            </button>
+            <button class="ctrl-btn play-btn" id="playPauseBtn" aria-label="Play">
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                width="24"
+                height="24"
+                viewBox="0 0 24 24"
+                fill="currentColor"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                class="play-icon lucide lucide-play"
+              >
+                <polygon points="6 3 20 12 6 21 6 3" />
+              </svg>
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                width="24"
+                height="24"
+                viewBox="0 0 24 24"
+                fill="currentColor"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                class="pause-icon lucide lucide-pause"
+                style="display: none"
+              >
+                <rect width="4" height="16" x="6" y="4" rx="1" />
+                <rect width="4" height="16" x="14" y="4" rx="1" />
+              </svg>
+            </button>
+            <button class="ctrl-btn" id="nextBtn" aria-label="Next">
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                width="20"
+                height="20"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                class="lucide lucide-skip-forward"
+              >
+                <polygon points="5 4 15 12 5 20 5 4" />
+                <line x1="19" x2="19" y1="5" y2="19" />
+              </svg>
+            </button>
+          </div>
+        </div>
+      </div>
+    </footer>
+
+    <div class="toast" id="toast">Message</div>
+
+    <script>
+      const PLACEHOLDER =
+        "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI2NCIgaGVpZ2h0PSI0OCIgc3R5bGU9ImJhY2tncm91bmQ6IzE0MTQxNCI+PC9zdmc+";
+
+      let prev = { queueKey: null, npKey: null, status: null };
+
+      const $ = (id) => document.getElementById(id);
+      const npTitle = $("npTitle");
+      const npArtist = $("npArtist");
+      const progFill = $("progFill");
+      const playBtn = $("playPauseBtn");
+      const queueList = $("queueList");
+      const currTimeE = $("currTime");
+      const durTimeE = $("durTime");
+      const form = $("addForm");
+      const urlInput = $("urlInput");
+      const fileInput = $("fileInput");
+      const suggestions = $("suggestions");
+      const toastEl = $("toast");
+
+      let pendingId = 0;
+      let pendingItems = [];
+      let lastData = null;
+
+      let suggestTimeout;
+      let suggestAbort = null;
+      let searchState = {
+        query: null,
+        ytAbort: null,
+        musicAbort: null,
+        results: [],
+        pendingMusic: false,
+      };
+      let currentSuggestions = [];
+      let currentFocusIndex = -1;
+      let dropdownMode = "";
+
+      urlInput.addEventListener("input", (e) => {
+        const q = e.target.value.trim();
+        clearTimeout(suggestTimeout);
+        if (suggestAbort) suggestAbort.abort();
+
+        if (searchState.ytAbort) searchState.ytAbort.abort();
+        if (searchState.musicAbort) searchState.musicAbort.abort();
+
+        searchState = {
+          query: null,
+          ytAbort: null,
+          musicAbort: null,
+          results: [],
+          pendingMusic: false,
+        };
+
+        if (!q || q.startsWith("http")) {
+          closeSuggestions();
+          return;
+        }
+
+        suggestTimeout = setTimeout(() => fetchSuggestions(q), 150);
+      });
+
+      async function fetchSuggestions(q) {
+        suggestAbort = new AbortController();
+        try {
+          const res = await fetch("/suggest?q=" + encodeURIComponent(q), {
+            signal: suggestAbort.signal,
+          });
+          if (!res.ok) throw new Error();
+          const items = await res.json();
+
+          currentSuggestions = items || [];
+          renderTypeahead(items);
+
+          startParallelSearch(q);
+        } catch (err) {
+          if (err.name !== "AbortError") {
+            closeSuggestions();
+          }
+        }
+      }
+
+      function startParallelSearch(q) {
+        if (searchState.query === q) return;
+
+        const ytAbort = new AbortController();
+        const musicAbort = new AbortController();
+
+        searchState = {
+          query: q,
+          ytAbort,
+          musicAbort,
+          results: [],
+          pendingMusic: true,
+        };
+
+        fetch("/search?q=" + encodeURIComponent(q) + "&src=yt", { signal: ytAbort.signal })
+          .then((r) => (r.ok ? r.json() : []))
+          .then((tracks) => mergeSearchResults(q, tracks, false))
+          .catch(() => {});
+
+        fetch("/search?q=" + encodeURIComponent(q) + "&src=music", {
+          signal: musicAbort.signal,
+        })
+          .then((r) => (r.ok ? r.json() : []))
+          .then((tracks) => mergeSearchResults(q, tracks, true))
+          .catch(() => {});
+      }
+
+      function mergeSearchResults(q, tracks, isMusic) {
+        if (searchState.query !== q) return;
+
+        if (isMusic) {
+          searchState.pendingMusic = false;
+        }
+
+        const existingMap = new Map();
+        searchState.results.forEach((r) => existingMap.set(r.url, r));
+
+        tracks.forEach((t) => {
+          const url = t.webpage_url || t.url;
+          const idMatch = url.match(/v=([^&]+)/);
+          const id = idMatch ? idMatch[1] : url;
+
+          let key = url;
+
+          const item = {
+            data: t,
+            isMusic: isMusic || t.is_music,
+            url: url,
+            html: renderTrackItemHTML(t),
+          };
+
+          let found = false;
+          for (let i = 0; i < searchState.results.length; i++) {
+            const ex = searchState.results[i];
+            const exId = ex.url.match(/v=([^&]+)/)?.[1];
+            if (exId && exId === id) {
+              if (isMusic) {
+                searchState.results[i] = item;
+              }
+              found = true;
+              break;
+            }
+          }
+
+          if (!found) {
+            searchState.results.push(item);
+          }
+        });
+
+        if (dropdownMode === "tracks") {
+          renderMergedResults();
+        }
+      }
+
+      function renderMergedResults() {
+        if (!searchState.results.length) {
+          if (!searchState.pendingMusic) {
+            suggestions.innerHTML = '<div class="loading-item">No results found</div>';
+          }
+          return;
+        }
+
+        suggestions.innerHTML = searchState.results.map((r) => r.html).join("");
+      }
+
+      function renderTrackItemHTML(t) {
+        const title = escHTML(t.title);
+        const artist = escHTML(t.artist || t.uploader);
+        const thumb = t.thumbnail || PLACEHOLDER;
+        let dur = "";
+        if (t.duration > 0) {
+          dur = fmtTime(t.duration);
+        }
+        const isMusic = t.is_music;
+
+        return (
+          '<div class="suggestion-item" data-url="' +
+          (t.webpage_url || t.url) +
+          '">' +
+          '<img src="' +
+          thumb +
+          '" class="sug-thumb" loading="lazy">' +
+          '<div class="sug-info">' +
+          '<div class="sug-title">' +
+          title +
+          "</div>" +
+          '<div class="sug-artist">' +
+          (isMusic
+            ? '<span class="music-badge"><svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-music"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg></span>'
+            : "") +
+          artist +
+          "</div>" +
+          "</div>" +
+          (dur ? '<div class="sug-duration">' + dur + "</div>" : "") +
+          "</div>"
+        );
+      }
+
+      async function searchTracks(q) {
+        dropdownMode = "tracks";
+        currentFocusIndex = -1;
+        suggestions.innerHTML = '<div class="loading-item">Searching...</div>';
+        suggestions.classList.add("active");
+
+        startParallelSearch(q);
+
+        if (searchState.results.length > 0) {
+          renderMergedResults();
+        }
+      }
+
+      function renderTypeahead(items) {
+        if (!items || !items.length) {
+          closeSuggestions();
+          return;
+        }
+        dropdownMode = "suggest";
+        currentFocusIndex = -1;
+        suggestions.innerHTML = items
+          .map((s) => '<div class="suggest-text">' + escHTML(s) + "</div>")
+          .join("");
+        suggestions.classList.add("active");
+      }
+
+      function closeSuggestions() {
+        suggestions.classList.remove("active");
+        suggestions.innerHTML = "";
+        dropdownMode = "";
+        currentFocusIndex = -1;
+        currentSuggestions = [];
+        searchState = {
+          query: null,
+          ytAbort: null,
+          musicAbort: null,
+          results: [],
+          pendingMusic: false,
+        };
+      }
+
+      urlInput.addEventListener("keydown", (e) => {
+        const items = suggestions.querySelectorAll(".suggest-text, .suggestion-item");
+        const isActive = suggestions.classList.contains("active");
+
+        if (e.key === "ArrowDown" || (e.key === "Tab" && !e.shiftKey)) {
+          if (items.length && isActive) {
+            e.preventDefault();
+            currentFocusIndex = (currentFocusIndex + 1) % items.length;
+            updateSelection(items);
+            updatePrefetchTarget();
+          }
+        } else if (e.key === "ArrowUp" || (e.key === "Tab" && e.shiftKey)) {
+          if (items.length && isActive) {
+            e.preventDefault();
+            if (currentFocusIndex === -1) {
+              currentFocusIndex = items.length - 1;
+            } else {
+              currentFocusIndex = (currentFocusIndex - 1 + items.length) % items.length;
+            }
+            updateSelection(items);
+            updatePrefetchTarget();
+          }
+        } else if (e.key === "Enter") {
+          if (isActive && currentFocusIndex > -1 && items.length) {
+            e.preventDefault();
+            items[currentFocusIndex].click();
+          } else if (isActive && dropdownMode === "suggest") {
+            e.preventDefault();
+            const q = urlInput.value.trim();
+            if (q && !q.startsWith("http")) {
+              searchTracks(q);
+            }
+          }
+        } else if (e.key === "Escape") {
+          if (isActive) {
+            e.preventDefault();
+            e.stopPropagation();
+            closeSuggestions();
+          } else {
+            e.target.blur();
+          }
+        }
+      });
+
+      function updateSelection(items) {
+        items.forEach((item, idx) => {
+          if (idx === currentFocusIndex) {
+            item.classList.add("active");
+            item.scrollIntoView({ block: "nearest" });
+          } else {
+            item.classList.remove("active");
+          }
+        });
+      }
+
+      function updatePrefetchTarget() {
+        if (dropdownMode !== "suggest" || !currentSuggestions.length) return;
+      }
+
+      suggestions.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const textItem = e.target.closest(".suggest-text");
+        if (textItem) {
+          const q = textItem.textContent;
+          urlInput.value = q;
+          searchTracks(q);
+          return;
+        }
+        const trackItem = e.target.closest(".suggestion-item");
+        if (trackItem) {
+          addToQueue(trackItem.dataset.url);
+          closeSuggestions();
+        }
+      });
+
+      document.addEventListener("click", (e) => {
+        if (!e.target.closest(".search-container")) {
+          closeSuggestions();
+        }
+      });
+
+      $("prevBtn").onclick = () => playback("previous");
+      $("nextBtn").onclick = () => playback("skip");
+      playBtn.onclick = () => playback(prev.status === "playing" ? "pause" : "resume");
+
+      function fmtTime(s) {
+        if (!s || isNaN(s) || s < 0) return "0:00";
+        const m = Math.floor(s / 60);
+        return m + ":" + String(Math.floor(s % 60)).padStart(2, "0");
+      }
+
+      function escHTML(s) {
+        const d = document.createElement("div");
+        d.textContent = s;
+        return d.innerHTML;
+      }
+
+      function itemHTML(item, cls) {
+        const meta = item.metadata || {};
+        const title = escHTML(meta.title || item.title || item.filename);
+        const uploader = escHTML(meta.uploader || "");
+        const thumb = meta.thumbnail || PLACEHOLDER;
+        let dur = "";
+        const dVal = meta.duration || item.duration;
+        if (dVal > 0) {
+          dur = fmtTime(dVal);
+        }
+        const parts = [uploader, dur].filter(Boolean).join(" · ");
+        return (
+          '<li class="queue-item ' +
+          cls +
+          '" tabindex="0" role="button" data-idx="' +
+          item.index +
+          '">' +
+          '<img src="' +
+          thumb +
+          '" class="thumb" loading="lazy" onerror="this.src=\'' +
+          PLACEHOLDER +
+          "'\">" +
+          '<div class="info"><div class="title">' +
+          title +
+          '</div><div class="meta">' +
+          parts +
+          "</div></div>" +
+          '<button class="delete-btn" data-idx="' +
+          item.index +
+          '" aria-label="Remove"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-trash-2"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/></svg></button></li>'
+        );
+      }
+
+      function pendingItemHTML(p) {
+        const label = escHTML(p.label);
+        const statusText =
+          p.status === "error" ? label : p.type === "upload" ? "Uploading..." : "Resolving...";
+        const cls = "pending" + (p.status === "error" ? " error" : "");
+        return (
+          '<li class="queue-item ' +
+          cls +
+          '" data-pending="' +
+          p.id +
+          '">' +
+          '<img src="' +
+          PLACEHOLDER +
+          '" class="thumb">' +
+          '<div class="info"><div class="title">' +
+          (p.status === "error" ? statusText : label) +
+          "</div>" +
+          '<div class="meta">' +
+          (p.status === "error" ? "" : statusText) +
+          "</div></div>" +
+          '<button class="delete-btn" aria-label="Remove"></button></li>'
+        );
+      }
+
+      function renderQueue(data) {
+        const focused = document.activeElement;
+        let focusIdx = null;
+        if (focused && focused.classList.contains("queue-item")) {
+          focusIdx = focused.dataset.idx;
+        }
+
+        const np = data.now_playing;
+        const history = (data.history || []).slice(-3);
+        const upcoming = data.upcoming || [];
+        const hasPending = pendingItems.length > 0;
+
+        if (!np && !history.length && !upcoming.length && !hasPending) {
+          queueList.innerHTML =
+            '<div class="empty-state">Queue is empty. Paste a URL or search above.</div>';
+          return;
+        }
+
+        let html = "";
+
+        if (history.length) {
+          html += '<li class="section-label">Played</li>';
+          for (const item of history) html += itemHTML(item, "played");
+        }
+
+        if (np) {
+          html += '<li class="section-label">Now Playing</li>';
+          html += itemHTML(np, "current");
+        }
+
+        if (upcoming.length || hasPending) {
+          html += '<li class="section-label">Up Next</li>';
+          for (const item of upcoming) html += itemHTML(item, "");
+          for (const p of pendingItems) html += pendingItemHTML(p);
+        }
+
+        queueList.innerHTML = html;
+
+        if (focusIdx !== null) {
+          const newItem = queueList.querySelector('.queue-item[data-idx="' + focusIdx + '"]');
+          if (newItem) newItem.focus();
+        }
+      }
+
+      function renderNowPlaying(data) {
+        const np = data.now_playing;
+        if (np) {
+          const meta = np.metadata || {};
+          npTitle.textContent = meta.title || np.title || np.filename;
+          npArtist.textContent = meta.uploader || "";
+        } else {
+          npTitle.textContent = data.status === "idle" ? "Idle" : "Loading...";
+          npArtist.textContent = "";
+        }
+      }
+
+      function renderProgress(data) {
+        const pct = data.duration > 0 ? (data.current_time / data.duration) * 100 : 0;
+        progFill.style.width = pct + "%";
+        currTimeE.textContent = fmtTime(data.current_time);
+        durTimeE.textContent = fmtTime(data.duration);
+      }
+
+      function renderControls(status) {
+        const playIcon = playBtn.querySelector(".play-icon");
+        const pauseIcon = playBtn.querySelector(".pause-icon");
+        if (status === "playing") {
+          playIcon.style.display = "none";
+          pauseIcon.style.display = "block";
+          playBtn.setAttribute("aria-label", "Pause");
+        } else {
+          playIcon.style.display = "block";
+          pauseIcon.style.display = "none";
+          playBtn.setAttribute("aria-label", "Play");
+        }
+      }
+
+      function makeQueueKey(data) {
+        const ids = (data.queue || []).map((i) => i.index + ":" + i.filename);
+        return data.current_index + "|" + ids.join(",");
+      }
+
+      function makeNpKey(data) {
+        const np = data.now_playing;
+        return np ? np.index + ":" + np.filename : "";
+      }
+
+      function onState(data) {
+        lastData = data;
+        renderProgress(data);
+
+        const qk = makeQueueKey(data);
+        const hasPendingChange = qk !== prev.queueKey;
+        if (hasPendingChange) {
+          prev.queueKey = qk;
+          renderQueue(data);
+        }
+
+        const nk = makeNpKey(data);
+        if (nk !== prev.npKey) {
+          prev.npKey = nk;
+          renderNowPlaying(data);
+        }
+
+        if (data.status !== prev.status) {
+          prev.status = data.status;
+          renderControls(data.status);
+        }
+      }
+
+      function applyDelta(base, delta) {
+        const result = { ...base, v: delta.v };
+        if (delta.current_time !== undefined) result.current_time = delta.current_time;
+        if (delta.duration !== undefined) result.duration = delta.duration;
+        if (delta.status !== undefined) result.status = delta.status;
+        if (delta.current_index !== undefined) {
+          result.current_index = delta.current_index;
+          const idx = delta.current_index;
+          if (idx < 0 || !result.queue) {
+            result.now_playing = null;
+            result.history = [];
+            result.upcoming = [];
+          } else if (idx < result.queue.length) {
+            result.now_playing = result.queue[idx];
+            result.history = result.queue.slice(0, idx);
+            result.upcoming = result.queue.slice(idx + 1);
+          } else {
+            return null;
+          }
+        }
+        return result;
+      }
+
+      let evtSource;
+      let sseConnected = false;
+
+      function connectSSE() {
+        if (evtSource) evtSource.close();
+        sseConnected = false;
+        npTitle.textContent = "Connecting...";
+        npArtist.textContent = "";
+        evtSource = new EventSource("/events");
+        evtSource.onmessage = (e) => {
+          sseConnected = true;
+          const payload = JSON.parse(e.data);
+          if (payload.v && !payload.queue && lastData) {
+            const merged = applyDelta(lastData, payload);
+            if (merged) {
+              onState(merged);
+            } else {
+              connectSSE();
+            }
+          } else {
+            onState(payload);
+          }
+        };
+        evtSource.onerror = () => {
+          if (evtSource.readyState === EventSource.CLOSED) {
+            sseConnected = false;
+            npTitle.textContent = "Reconnecting...";
+            npArtist.textContent = "";
+            setTimeout(connectSSE, 3000);
+          }
+        };
+      }
+
+      connectSSE();
+
+      document.addEventListener("visibilitychange", () => {
+        if (document.visibilityState === "visible" && evtSource.readyState !== EventSource.OPEN) {
+          connectSSE();
+        }
+      });
+
+      queueList.addEventListener("click", (e) => {
+        const item = e.target.closest(".queue-item");
+        if (!item || item.classList.contains("pending")) return;
+        const btn = e.target.closest(".delete-btn");
+        if (btn) {
+          removeItem(parseInt(btn.dataset.idx, 10));
+          e.stopPropagation();
+          return;
+        }
+        if (item) playItem(parseInt(item.dataset.idx, 10));
+      });
+
+      queueList.addEventListener("keydown", (e) => {
+        const item = e.target.closest(".queue-item");
+        if (!item || item.classList.contains("pending")) return;
+
+        if (e.key === "Enter") {
+          e.preventDefault();
+          playItem(parseInt(item.dataset.idx, 10));
+        } else if (e.key === "Delete" || e.key === "Backspace") {
+          e.preventDefault();
+          removeItem(parseInt(item.dataset.idx, 10));
+        } else if (e.key === "ArrowDown") {
+          e.preventDefault();
+          let next = item.nextElementSibling;
+          while (next && !next.classList.contains("queue-item")) {
+            next = next.nextElementSibling;
+          }
+          if (next) next.focus();
+        } else if (e.key === "ArrowUp") {
+          e.preventDefault();
+          let prev = item.previousElementSibling;
+          while (prev && !prev.classList.contains("queue-item")) {
+            prev = prev.previousElementSibling;
+          }
+          if (prev) prev.focus();
+        }
+      });
+
+      form.onsubmit = async (e) => {
+        e.preventDefault();
+        const val = urlInput.value.trim();
+        if (!val) return;
+
+        if (val.match(/^https?:\/\//i)) {
+          addToQueue(val);
+        } else {
+          searchTracks(val);
+        }
+      };
+
+      fileInput.onchange = (e) => handleFiles(e.target.files);
+
+      function handleFiles(files) {
+        if (!files || !files.length) return;
+        Array.from(files).forEach((file) => uploadFile(file));
+        fileInput.value = "";
+      }
+
+      async function uploadFile(file) {
+        const formData = new FormData();
+        formData.append("file", file);
+        const pid = addPending(file.name, "upload");
+        try {
+          const res = await fetch("/upload", {
+            method: "POST",
+            body: formData,
+          });
+          if (!res.ok) throw new Error();
+          removePending(pid);
+        } catch (err) {
+          failPending(pid, "Upload failed");
+        }
+      }
+
+      let dragCounter = 0;
+      document.body.addEventListener("dragenter", (e) => {
+        e.preventDefault();
+        dragCounter++;
+        document.body.classList.add("drag-over");
+      });
+      document.body.addEventListener("dragover", (e) => e.preventDefault());
+      document.body.addEventListener("dragleave", (e) => {
+        dragCounter--;
+        if (dragCounter <= 0) document.body.classList.remove("drag-over");
+      });
+      document.body.addEventListener("drop", (e) => {
+        e.preventDefault();
+        dragCounter = 0;
+        document.body.classList.remove("drag-over");
+        handleFiles(e.dataTransfer.files);
+      });
+
+      function extractLabel(url) {
+        try {
+          const u = new URL(url);
+          return u.hostname.replace("www.", "").replace("m.", "");
+        } catch {
+          return url.length > 40 ? url.slice(0, 40) + "..." : url;
+        }
+      }
+
+      function addPending(label, type) {
+        const id = ++pendingId;
+        const item = { id, label, type, status: "loading" };
+        pendingItems.push(item);
+        if (lastData) renderQueue(lastData);
+        return id;
+      }
+
+      function removePending(id) {
+        pendingItems = pendingItems.filter((p) => p.id !== id);
+        if (lastData) renderQueue(lastData);
+      }
+
+      function failPending(id, msg) {
+        const item = pendingItems.find((p) => p.id === id);
+        if (item) {
+          item.status = "error";
+          item.label = msg || "Failed";
+          if (lastData) renderQueue(lastData);
+          setTimeout(() => removePending(id), 3000);
+        }
+      }
+
+      async function addToQueue(url) {
+        urlInput.value = "";
+        urlInput.focus();
+        const pid = addPending(extractLabel(url), "url");
+        try {
+          const res = await fetch("/queue", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ url }),
+          });
+          if (!res.ok) throw new Error(await res.text());
+          removePending(pid);
+        } catch (err) {
+          failPending(pid, err.message || "Failed to add");
+        }
+      }
+
+      async function playback(action) {
+        try {
+          await fetch("/playback", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ action }),
+          });
+        } catch (err) {
+          console.error(err);
+        }
+      }
+
+      async function playItem(index) {
+        try {
+          await fetch("/playback", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ action: "play", index }),
+          });
+        } catch (err) {
+          console.error(err);
+        }
+      }
+
+      async function removeItem(index) {
+        try {
+          await fetch("/queue/" + index, { method: "DELETE" });
+        } catch (err) {
+          console.error(err);
+        }
+      }
+      function showToast(msg, isError) {
+        toastEl.textContent = msg;
+        toastEl.className = "toast show" + (isError ? " error" : "");
+        setTimeout(() => (toastEl.className = "toast"), 3000);
+      }
+
+      document.addEventListener("keydown", (e) => {
+        if (e.target.tagName === "INPUT") {
+          return;
+        }
+
+        if ((e.ctrlKey || e.metaKey) && e.key === "o") {
+          e.preventDefault();
+          fileInput.click();
+          return;
+        }
+
+        switch (e.key) {
+          case " ":
+            e.preventDefault();
+            playback(prev.status === "playing" ? "pause" : "resume");
+            break;
+          case "u":
+            e.preventDefault();
+            fileInput.click();
+            break;
+          case "ArrowLeft":
+            e.preventDefault();
+            playback("previous");
+            break;
+          case "ArrowRight":
+            e.preventDefault();
+            playback("skip");
+            break;
+          case "Delete":
+            e.preventDefault();
+            if (prev.npKey) {
+              const idx = parseInt(prev.npKey.split(":")[0], 10);
+              if (!isNaN(idx)) {
+                removeItem(idx);
+              }
+            }
+            break;
+          case "/":
+            e.preventDefault();
+            urlInput.focus();
+            break;
+        }
+      });
+
+      document.addEventListener("paste", (e) => {
+        const items = (e.clipboardData || window.clipboardData).items;
+        const files = [];
+        if (items) {
+          for (let i = 0; i < items.length; i++) {
+            if (items[i].kind === "file") {
+              const f = items[i].getAsFile();
+              if (f) files.push(f);
+            }
+          }
+        }
+        if (files.length > 0) {
+          e.preventDefault();
+          handleFiles(files);
+          return;
+        }
+
+        const pasted = (e.clipboardData || window.clipboardData).getData("text");
+        const urlMatch = pasted.match(/https?:\/\/[^\s]+/);
+        if (!urlMatch) return;
+
+        e.preventDefault();
+        addToQueue(urlMatch[0]);
+      });
+    </script>
+  </body>
 </html>

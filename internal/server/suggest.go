@@ -29,11 +29,12 @@ func (s *Server) handleSuggest(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "public, max-age=300")
 	_ = json.NewEncoder(w).Encode(suggestions)
 }
 
 func fetchSuggestions(ctx context.Context, query string) ([]string, error) {
-	u := "https://suggestqueries.google.com/complete/search?client=firefox&ds=yt&q=" + url.QueryEscape(query)
+	u := "https://suggestqueries.google.com/complete/search?client=firefox&ds=yt&oe=utf8&q=" + url.QueryEscape(query)
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 	if err != nil {

@@ -136,12 +136,12 @@ func TestState_SetPlaylistPos(t *testing.T) {
 		t.Errorf("playlistPos = %d, want 2", s.playlistPos)
 	}
 
-	if s.timePos != 0 {
-		t.Errorf("timePos should be reset to 0, got %f", s.timePos)
+	if s.timePos != 100.0 {
+		t.Errorf("timePos should be preserved, got %f", s.timePos)
 	}
 
-	if s.duration != 0 {
-		t.Errorf("duration should be reset to 0, got %f", s.duration)
+	if s.duration != 200.0 {
+		t.Errorf("duration should be preserved, got %f", s.duration)
 	}
 }
 

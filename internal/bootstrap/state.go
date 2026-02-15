@@ -4,12 +4,18 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"time"
 )
 
 type State struct {
 	Uv    string `json:"uv"`
 	Bun   string `json:"bun"`
 	YtDlp string `json:"yt-dlp"`
+}
+
+type CachedVersions struct {
+	Versions  LatestVersions `json:"versions"`
+	CheckedAt time.Time      `json:"checked_at"`
 }
 
 func LoadState(cacheDir string) (*State, error) {
@@ -33,5 +39,29 @@ func SaveState(cacheDir string, s *State) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(filepath.Join(cacheDir, "versions.json"), data, 0644)
+	return os.WriteFile(filepath.Join(cacheDir, "versions.json"), data, 0o644)
+}
+
+func LoadCachedVersions(cacheDir string) (*CachedVersions, error) {
+	data, err := os.ReadFile(filepath.Join(cacheDir, "version-check.json"))
+	if os.IsNotExist(err) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	var cv CachedVersions
+	if err := json.Unmarshal(data, &cv); err != nil {
+		return nil, err
+	}
+	return &cv, nil
+}
+
+func SaveCachedVersions(cacheDir string, cv *CachedVersions) error {
+	data, err := json.MarshalIndent(cv, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(cacheDir, "version-check.json"), data, 0o644)
 }

@@ -80,12 +80,13 @@ func (s *Server) handleQueue(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 	query := r.URL.Query().Get("q")
+	source := r.URL.Query().Get("src")
 	if query == "" {
 		http.Error(w, "Query is required", http.StatusBadRequest)
 		return
 	}
 
-	tracks, err := s.resolver.Search(r.Context(), query, 5)
+	tracks, err := s.resolver.Search(r.Context(), query, 5, source)
 	if err != nil {
 		if r.Context().Err() != nil {
 			return

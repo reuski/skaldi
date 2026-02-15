@@ -78,9 +78,28 @@ func (m *Manager) checkTempFiles(entries []MpvPlaylistEntry) {
 	}
 }
 
+const metadataTTL = 5 * time.Minute
+
+func (m *Manager) StartMetadataGC(ctx context.Context) {
+	go func() {
+		ticker := time.NewTicker(metadataTTL)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				cutoff := time.Now().Add(-metadataTTL)
+				m.State.PruneMetadataBefore(cutoff)
+			}
+		}
+	}()
+}
+
 func (m *Manager) Run(ctx context.Context) error {
 	defer m.CleanupTempFiles()
 	m.StartEventLoop(ctx)
+	m.StartMetadataGC(ctx)
 
 	for {
 		if err := ctx.Err(); err != nil {
@@ -197,7 +216,7 @@ func (m *Manager) Wait() error {
 	return m.cmd.Wait()
 }
 
-func (m *Manager) Exec(args ...interface{}) (interface{}, error) {
+func (m *Manager) Exec(args ...any) (any, error) {
 	return m.ipc.Exec(args...)
 }
 

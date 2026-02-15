@@ -86,51 +86,6 @@ func TestTrackFromResponse(t *testing.T) {
 	}
 }
 
-func TestExtractVideoID(t *testing.T) {
-	tests := []struct {
-		url      string
-		expected string
-	}{
-		{"https://www.youtube.com/watch?v=abc123", "abc123"},
-		{"https://youtu.be/xyz789", ""},
-		{"", ""},
-		{"invalid-url", ""},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.url, func(t *testing.T) {
-			got := extractVideoID(tc.url)
-			if got != tc.expected {
-				t.Errorf("extractVideoID(%q) = %q, want %q", tc.url, got, tc.expected)
-			}
-		})
-	}
-}
-
-func TestDedup(t *testing.T) {
-	primary := []Track{
-		{Title: "First", WebpageURL: "https://youtube.com/watch?v=1"},
-		{Title: "Second", WebpageURL: "https://youtube.com/watch?v=2"},
-	}
-	secondary := []Track{
-		{Title: "Duplicate", WebpageURL: "https://youtube.com/watch?v=1"},
-		{Title: "Third", WebpageURL: "https://youtube.com/watch?v=3"},
-	}
-
-	result := dedup(primary, secondary)
-
-	if len(result) != 3 {
-		t.Errorf("dedup returned %d tracks, want 3", len(result))
-	}
-
-	expected := []string{"First", "Second", "Third"}
-	for i, title := range expected {
-		if result[i].Title != title {
-			t.Errorf("result[%d].Title = %q, want %q", i, result[i].Title, title)
-		}
-	}
-}
-
 func TestTrackStruct(t *testing.T) {
 	track := Track{
 		Title:      "Test",

@@ -23,27 +23,29 @@ func TestNewBroadcaster(t *testing.T) {
 	if b.updates != updates {
 		t.Error("updates channel not set correctly")
 	}
-
-	if b.lastState != nil {
-		t.Error("lastState should be nil initially")
-	}
 }
 
 func TestBroadcaster_AddClient(t *testing.T) {
 	updates := make(chan player.Snapshot)
 	b := NewBroadcaster(updates)
 
-	ch := b.AddClient()
+	ch := b.AddClient(player.Snapshot{})
 
 	if ch == nil {
 		t.Fatal("AddClient() returned nil channel")
 	}
 
 	b.clientsMu.Lock()
-	_, ok := b.clients[ch]
+	found := false
+	for c := range b.clients {
+		if c.ch == ch {
+			found = true
+			break
+		}
+	}
 	b.clientsMu.Unlock()
 
-	if !ok {
+	if !found {
 		t.Error("Client channel not added to clients map")
 	}
 
@@ -54,14 +56,20 @@ func TestBroadcaster_RemoveClient(t *testing.T) {
 	updates := make(chan player.Snapshot)
 	b := NewBroadcaster(updates)
 
-	ch := b.AddClient()
+	ch := b.AddClient(player.Snapshot{})
 	b.RemoveClient(ch)
 
 	b.clientsMu.Lock()
-	_, ok := b.clients[ch]
+	found := false
+	for c := range b.clients {
+		if c.ch == ch {
+			found = true
+			break
+		}
+	}
 	b.clientsMu.Unlock()
 
-	if ok {
+	if found {
 		t.Error("Client channel should have been removed from clients map")
 	}
 
@@ -81,10 +89,11 @@ func TestBroadcaster_Run(t *testing.T) {
 
 	go b.Run()
 
-	clientCh := b.AddClient()
+	clientCh := b.AddClient(player.Snapshot{})
 	defer b.RemoveClient(clientCh)
 
 	snapshot := player.Snapshot{
+		Version:     1,
 		Status:      player.StatusPlaying,
 		CurrentTime: 60.0,
 		Duration:    180.0,
@@ -101,7 +110,7 @@ func TestBroadcaster_Run(t *testing.T) {
 			t.Error("Received empty message")
 		}
 
-		var prefix = []byte("data: ")
+		prefix := []byte("data: ")
 		if len(msg) < len(prefix) || string(msg[:len(prefix)]) != "data: " {
 			t.Errorf("Message should start with 'data: ', got %q", string(msg))
 		}
@@ -116,13 +125,14 @@ func TestBroadcaster_MultipleClients(t *testing.T) {
 
 	go b.Run()
 
-	client1 := b.AddClient()
-	client2 := b.AddClient()
+	client1 := b.AddClient(player.Snapshot{})
+	client2 := b.AddClient(player.Snapshot{})
 	defer b.RemoveClient(client1)
 	defer b.RemoveClient(client2)
 
 	snapshot := player.Snapshot{
-		Status: player.StatusPlaying,
+		Version: 1,
+		Status:  player.StatusPlaying,
 	}
 
 	updates <- snapshot
@@ -139,30 +149,50 @@ func TestBroadcaster_MultipleClients(t *testing.T) {
 	}
 }
 
-func TestBroadcaster_LastState(t *testing.T) {
+func TestBroadcaster_DeltaSending(t *testing.T) {
 	updates := make(chan player.Snapshot, 10)
 	b := NewBroadcaster(updates)
 
 	go b.Run()
 
-	snapshot := player.Snapshot{
-		Status: player.StatusPlaying,
+	clientCh := b.AddClient(player.Snapshot{})
+	defer b.RemoveClient(clientCh)
+
+	snapshot1 := player.Snapshot{
+		Version:     1,
+		Status:      player.StatusPlaying,
+		CurrentTime: 60.0,
+		Duration:    180.0,
 	}
 
-	updates <- snapshot
+	updates <- snapshot1
 
-	time.Sleep(100 * time.Millisecond)
-
-	b.clientsMu.Lock()
-	lastState := b.lastState
-	b.clientsMu.Unlock()
-
-	if lastState == nil {
-		t.Fatal("lastState should be set after receiving snapshot")
+	select {
+	case msg := <-clientCh:
+		if len(msg) == 0 {
+			t.Error("Received empty message")
+		}
+	case <-time.After(500 * time.Millisecond):
+		t.Error("Timeout waiting for first message")
 	}
 
-	if len(lastState) == 0 {
-		t.Error("lastState should not be empty")
+	snapshot2 := player.Snapshot{
+		Version:     2,
+		Status:      player.StatusPlaying,
+		CurrentTime: 65.0,
+		Duration:    180.0,
+	}
+
+	updates <- snapshot2
+
+	select {
+	case msg := <-clientCh:
+		msgStr := string(msg)
+		if len(msgStr) == 0 {
+			t.Error("Received empty delta message")
+		}
+	case <-time.After(500 * time.Millisecond):
+		t.Error("Timeout waiting for delta message")
 	}
 }
 
@@ -172,11 +202,11 @@ func TestBroadcaster_ClientBuffer(t *testing.T) {
 
 	go b.Run()
 
-	clientCh := b.AddClient()
+	clientCh := b.AddClient(player.Snapshot{})
 	defer b.RemoveClient(clientCh)
 
-	for i := 0; i < 15; i++ {
-		updates <- player.Snapshot{Status: player.StatusPlaying}
+	for i := range 15 {
+		updates <- player.Snapshot{Version: uint64(i + 1), Status: player.StatusPlaying}
 	}
 
 	time.Sleep(100 * time.Millisecond)
@@ -208,16 +238,16 @@ func TestBroadcaster_ConcurrentAccess(t *testing.T) {
 
 	go b.Run()
 
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		go func() {
-			ch := b.AddClient()
+			ch := b.AddClient(player.Snapshot{})
 			time.Sleep(50 * time.Millisecond)
 			b.RemoveClient(ch)
 		}()
 	}
 
-	for i := 0; i < 20; i++ {
-		updates <- player.Snapshot{Status: player.StatusPlaying}
+	for i := range 20 {
+		updates <- player.Snapshot{Version: uint64(i + 1), Status: player.StatusPlaying}
 		time.Sleep(10 * time.Millisecond)
 	}
 
@@ -238,10 +268,11 @@ func TestSSEMessageFormat(t *testing.T) {
 
 	go b.Run()
 
-	clientCh := b.AddClient()
+	clientCh := b.AddClient(player.Snapshot{})
 	defer b.RemoveClient(clientCh)
 
 	snapshot := player.Snapshot{
+		Version:     1,
 		Status:      player.StatusPlaying,
 		CurrentTime: 42.0,
 		Duration:    180.0,
