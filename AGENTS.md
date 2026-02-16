@@ -1,110 +1,82 @@
-# Skaldi Agent Protocol
+# Skaldi
 
-## 1. Project Identity
+Development guidelines for the Skaldi network jukebox.
 
-**Skaldi** is a self-provisioning network jukebox delivered as a single Go binary.
-**Core Philosophy:** Zero external Go dependencies, rigorous self-containment, and robust runtime management.
+## Philosophy
 
-## 2. Tech Stack & Constraints
+- **Zero external Go dependencies** - stdlib only
+- **Self-contained** - single binary, embedded web UI
+- **Fail fast during provisioning** - fatal errors on missing deps
+- **Recover gracefully at runtime** - auto-restart, reconnect
 
-### Backend (Go)
+## Stack
 
-- **Stdlib Only:** Strictly NO external Go modules (no `go get`). Use standard `net/http`, `encoding/json`, `os/exec`.
-- **Concurrency:** Use channels for state management (Actor-like model for `player/state.go`).
-- **Logging:** Use `log/slog` (structured logging) from the standard library.
-- **Error Handling:** Fail fast during provisioning (fatal). Recover gracefully during runtime (retry/reconnect).
-- **Linting:** CI enforces `golangci-lint`. Run `make lint` locally before pushing.
+**Backend (Go 1.23)**
+- Stdlib: `net/http`, `log/slog`, `os/exec`
+- Concurrency: channels for state, `sync.RWMutex` for shared data
+- Contexts required for all long-running operations
 
-### Frontend (Web)
+**Frontend**
+- Single file: `web/index.html` via `//go:embed`
+- Vanilla ES6, CSS variables, no build step
+- `fetch` for commands, `EventSource` for state
 
-- **Single File:** `web/index.html` embedded via `go:embed`.
-- **No Build Step:** Vanilla ES6 JavaScript, CSS Variables. No npm, no bundler.
-- **Communication:** `fetch` for commands, `EventSource` (SSE) for state updates.
+**Managed Runtime Dependencies**
+- `uv` - Python package manager
+- `bun` - JS runtime for yt-dlp
+- `yt-dlp` - Media resolver (installed via uv)
+- `mpv` + `ffmpeg` - System dependencies
 
-### Runtime Dependencies (Managed)
+## Structure
 
-The agent must respect the auto-provisioning architecture:
-
-- **uv:** Used to install `yt-dlp`.
-- **Bun:** Used as the JS runtime for `yt-dlp`.
-- **Shim:** A generated shell script acts as the interface between `mpv` and `yt-dlp`.
-
-## 3. Directory Structure & Responsibilities
-
-```text
-skaldi/
-├── cmd/skaldi/
-│   └── main.go                 # Application entry point
-├── internal/
-│   ├── bootstrap/              # Provisioning (uv, bun, shim)
-│   ├── discovery/              # mDNS service registration
-│   ├── player/                 # mpv process & IPC
-│   ├── resolver/               # yt-dlp metadata extraction
-│   └── server/                 # HTTP & SSE handlers
-├── web/
-│   ├── fs.go                   # Embedded filesystem
-│   └── index.html              # Single-page web UI
-├── .github/workflows/
-│   ├── ci.yml                  # CI: lint, test, build, vuln check
-│   └── release.yml             # CD: cross-compile releases
-├── Makefile                    # Local development tasks
-└── go.mod                      # Module definition (stdlib only)
+```
+cmd/skaldi/
+    main.go
+internal/
+    bootstrap/    # Provisioning (uv, bun, yt-dlp)
+    discovery/    # mDNS service registration
+    player/       # mpv process & IPC
+    resolver/     # yt-dlp metadata extraction
+    server/       # HTTP handlers & SSE
+web/
+    fs.go         # Embed directive
+    index.html    # Single-page UI
 ```
 
-## 4. Development Workflows
+## Commands
 
-### Build & Verification
+```bash
+make all      # lint, test, build
+make build    # go build
+make test     # go test -v ./internal/...
+make lint     # gofmt, golangci-lint, go vet
+make vuln     # govulncheck
+```
 
-- **All:** `make all` (lint, test, build)
-- **Build:** `make build` - compiles binary
-- **Run:** `./skaldi` (First run triggers provisioning)
-- **Test:** `make test` - runs unit tests
-- **Lint:** `make lint` - runs golangci-lint and go vet
-- **Vulnerability:** `make vuln` - runs govulncheck
+## Invariants
 
-### CI/CD Pipeline
+1. **Shim**: mpv NEVER calls yt-dlp directly. Use generated shim at `bin/yt-dlp`
+2. **Source of truth**: mpv's internal playlist is master state. Mirror via IPC, don't predict
+3. **Idempotency**: Check existence/version before downloading in bootstrap
+4. **Lint compliance**: All errors handled or explicitly ignored (`_ = err`)
 
-CI triggers on every push and pull request. Release builds trigger on version tags (`v*`).
+## Patterns
 
-**Note:** Install [golangci-lint](https://golangci-lint.run/usage/install/) locally to catch issues before CI.
+### Adding IPC Commands
 
-### Critical Invariants (DO NOT BREAK)
+1. Add command wrapper in `internal/player/ipc.go`
+2. Expose method in `internal/player/mpv.go`
+3. Add handler in `internal/server/handlers.go`
 
-1. **The Shim:** `mpv` must NEVER call `yt-dlp` directly. It must point to the generated shim script to ensure Bun is loaded correctly.
-2. **IPC Source of Truth:** The `mpv` internal playlist is the master state. The Go app mirrors this state via IPC events (`observe_property`), it does not predict it.
-3. **Idempotency:** Provisioning steps in `internal/bootstrap` must check existence/versions before downloading.
-4. **Lint Compliance:** All code must pass `golangci-lint`. CI fails on unhandled errors (`errcheck`).
+### State Updates
 
-## 5. Coding Standards
+- Use channels for state mutations (actor-like)
+- SSE broadcaster sends snapshots to new clients, deltas to existing
+- Metadata cache pruned after 5 minutes
 
-### Go
+### Error Handling
 
-- **Contexts:** Pass `context.Context` to all long-running operations (IPC, Subprocesses).
-- **OS Agnostic:** Use `path/filepath` for all file system operations. Handle CRLF/LF if necessary, but prefer LF.
-- **Command Execution:** Always use absolute paths for the `bin/` directory in the cache.
-- **Error Handling:** Always handle or explicitly ignore errors with `_ =`. CI will fail on unchecked errors.
-
-### JavaScript (Frontend)
-
-- **State:** Store local state sparingly. Render based on SSE snapshots.
-- **Mobile First:** CSS grid/flexbox. Touch targets > 44px.
-
-## 6. Common Tasks
-
-### Adding a new IPC command
-
-1. Add command wrapper in `internal/player/ipc.go`.
-2. Expose method in `internal/player/mpv.go`.
-3. Add handler in `internal/server/handlers.go`.
-
-### Updating Provisioning Logic
-
-1. Check `internal/bootstrap/` files.
-2. Update `internal/bootstrap/provision.go`.
-3. Ensure backward compatibility or clean cache invalidation.
-
-### Releasing
-
-1. Tag: `git tag v0.1.0`
-2. Push: `git push origin v0.1.0`
-3. GitHub Actions automatically builds and releases binaries for all platforms.
+- Provisioning: `log.Fatal` on missing prerequisites
+- Runtime: retry with backoff, don't crash
+- Always use absolute paths for cache `bin/` directory
+- Use `path/filepath` for cross-platform compatibility

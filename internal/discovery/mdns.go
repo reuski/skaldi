@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 // Package discovery handles mDNS service registration for local network discovery.
 package discovery
 

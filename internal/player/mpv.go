@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 // Package player manages the mpv media player process and IPC communication.
 package player
 

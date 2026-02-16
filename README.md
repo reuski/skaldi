@@ -1,85 +1,67 @@
 # Skaldi
 
-Skaldi is a self-hosting network jukebox delivered as a single Go binary. It transforms any Linux or macOS machine into a shared audio player controlled via a web interface.
-
 ![CI](https://github.com/reuski/skaldi/actions/workflows/ci.yml/badge.svg) ![Release](https://img.shields.io/github/v/release/reuski/skaldi?style=flat-square) ![Go Report Card](https://goreportcard.com/badge/github.com/reuski/skaldi?style=flat-square)
 
-## Features
+Self-hosting network jukebox. Single Go binary, web UI, auto-provisions dependencies.
 
-- **Single Binary**: Self-contained Go binary with embedded web UI
-- **Auto-Provisioning**: Manages `uv`, `yt-dlp`, and `Bun`
-- **Web Interface**: Mobile-first responsive frontend
-- **Universal Queue**: Supports YouTube URLs and direct file uploads
-- **Audio Normalization**: Real-time dynamic range compression via `dynaudnorm`
-- **mDNS Discovery**: Auto-registers as `skaldi.local`
-- **Live State Sync**: Real-time SSE updates
-
-## Requirements
-
-- **mpv**
-- **ffmpeg**
-- **avahi** (Linux) or **dns-sd** (macOS)
-
-## Installation
-
-### macOS
+## Install
 
 ```bash
+# macOS
 brew install mpv ffmpeg
-```
-
-### Linux
-
-```bash
-# Debian/Ubuntu
-sudo apt install mpv ffmpeg avahi-utils
 
 # Arch
 sudo pacman -S mpv ffmpeg avahi
+
+# Debian/Ubuntu
+sudo apt install mpv ffmpeg avahi-utils
 ```
 
-## Build
+## Build & Run
 
 ```bash
 go build -o skaldi ./cmd/skaldi
-```
-
-## Run
-
-```bash
 ./skaldi
 ```
 
-## Architecture
+First run auto-installs `uv`, `bun`, `yt-dlp` to `~/.cache/skaldi/`.
 
-### Dependencies
+## Features
 
-1. **System**: `mpv`, `ffmpeg`
-2. **Managed**: `uv`, `yt-dlp`, `Bun`
-3. **Embedded**: Web frontend
+- **Queue**: YouTube URLs, direct file uploads (drag-drop or paste)
+- **Search**: YouTube + YouTube Music with autocomplete
+- **Sync**: Real-time SSE state updates
+- **Discovery**: Auto-registers as `skaldi.local` via mDNS
+- **Audio**: Dynamic range compression via `dynaudnorm`
 
-### Structure
+## API
 
-```text
-cmd/skaldi/
-    main.go
-internal/
-    bootstrap/
-    discovery/
-    player/
-    resolver/
-    server/
-web/
-    index.html
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/` | Web UI |
+| GET | `/events` | SSE stream |
+| GET | `/suggest?q={query}` | Autocomplete suggestions |
+| GET | `/search?q={query}` | Search YouTube/Music |
+| POST | `/queue` | Add URL `{"url":"..."}` |
+| DELETE | `/queue/{index}` | Remove item |
+| POST | `/playback` | Control `{"action":"pause|resume|skip|previous|play"}` |
+| POST | `/upload` | File upload (multipart/form-data) |
+
+## Security
+
+No authentication. Exposing to the internet allows arbitrary uploads and RCE via media parsers. Run only on trusted networks.
+
+## Development
+
+```bash
+make all    # lint, test, build
+make lint   # golangci-lint, go vet
+make test   # go test -v ./internal/...
+make vuln   # govulncheck
 ```
 
-### API
+See [`AGENTS.md`](./AGENTS.md) for architecture guidelines.
 
-| Method | Path             | Description      |
-| ------ | ---------------- | ---------------- |
-| GET    | `/`              | Web interface    |
-| GET    | `/events`        | SSE stream       |
-| POST   | `/queue`         | Add URL          |
-| DELETE | `/queue/{index}` | Remove item      |
-| POST   | `/playback`      | Control playback |
-| POST   | `/upload`        | Upload file      |
+## License
+
+AGPL-3.0 - See [LICENSE](./LICENSE)

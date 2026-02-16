@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 package bootstrap
 
 import (
@@ -28,7 +30,7 @@ func TestLoadState_ValidJSON(t *testing.T) {
   "bun": "1.1.0",
   "yt-dlp": "2024.01.01"
 }`
-	if err := os.WriteFile(statePath, []byte(jsonData), 0644); err != nil {
+	if err := os.WriteFile(statePath, []byte(jsonData), 0o644); err != nil {
 		t.Fatalf("Failed to write test file: %v", err)
 	}
 
@@ -54,7 +56,7 @@ func TestLoadState_InvalidJSON(t *testing.T) {
 	tmpDir := t.TempDir()
 	statePath := filepath.Join(tmpDir, "versions.json")
 
-	if err := os.WriteFile(statePath, []byte("not valid json"), 0644); err != nil {
+	if err := os.WriteFile(statePath, []byte("not valid json"), 0o644); err != nil {
 		t.Fatalf("Failed to write test file: %v", err)
 	}
 
