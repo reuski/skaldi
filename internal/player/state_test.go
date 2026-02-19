@@ -64,14 +64,14 @@ func TestState_SetIdle(t *testing.T) {
 	}
 }
 
-func TestState_SetIdle_ResetsPlaylistPos(t *testing.T) {
+func TestState_SetIdle_DoesNotResetPlaylistPos(t *testing.T) {
 	s := NewState()
 	s.playlistPos = 5
 
 	s.SetIdle(true)
 
-	if s.playlistPos != -1 {
-		t.Errorf("playlistPos = %d, want -1", s.playlistPos)
+	if s.playlistPos != 5 {
+		t.Errorf("playlistPos = %d, want 5", s.playlistPos)
 	}
 }
 
@@ -273,6 +273,7 @@ func TestState_Snapshot_WithPlaylist(t *testing.T) {
 		{Filename: "track2.mp3", ID: 2, Current: true},
 		{Filename: "track3.mp3", ID: 3},
 	})
+	s.SetPlaylistPos(1)
 
 	s.StoreMetadata("track1.mp3", resolver.Track{Title: "Track 1", Duration: 100})
 	s.StoreMetadata("track2.mp3", resolver.Track{Title: "Track 2", Duration: 200})
@@ -347,5 +348,29 @@ func TestState_Snapshot_MetadataLookup(t *testing.T) {
 
 	if item.Metadata == nil {
 		t.Error("Metadata should be populated")
+	}
+}
+
+func TestComputeDelta_MetadataChange(t *testing.T) {
+	s := NewState()
+	s.SetPlaylist([]MpvPlaylistEntry{
+		{Filename: "track1.mp3", ID: 1},
+	})
+	s.SetPlaylistPos(0)
+	s.StoreMetadata("track1.mp3", resolver.Track{Title: "Title 1", Duration: 100})
+
+	prev := s.Snapshot()
+
+	// Update metadata (Title change)
+	s.StoreMetadata("track1.mp3", resolver.Track{Title: "Title 2", Duration: 100})
+	curr := s.Snapshot()
+
+	if curr.Version == prev.Version {
+		t.Error("Version should have incremented")
+	}
+
+	delta := ComputeDelta(prev, curr)
+	if delta != nil {
+		t.Error("ComputeDelta should return nil (full snapshot) when queue content changes")
 	}
 }

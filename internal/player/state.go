@@ -81,6 +81,7 @@ func (s *State) StoreMetadata(url string, track resolver.Track) {
 	defer s.mu.Unlock()
 	s.metadata[url] = track
 	s.metaAddedAt[url] = time.Now()
+	s.version++
 }
 
 func (s *State) Snapshot() Snapshot {
@@ -102,13 +103,6 @@ func (s *State) Snapshot() Snapshot {
 
 	if s.playlistPos >= 0 && s.playlistPos < len(s.playlist) {
 		currentIdx = s.playlistPos
-	} else {
-		for i, entry := range s.playlist {
-			if entry.Current {
-				currentIdx = i
-				break
-			}
-		}
 	}
 
 	for i, entry := range s.playlist {
@@ -150,9 +144,6 @@ func (s *State) Snapshot() Snapshot {
 func (s *State) SetIdle(idle bool) {
 	s.mu.Lock()
 	s.idleActive = idle
-	if idle {
-		s.playlistPos = -1
-	}
 	s.version++
 	s.mu.Unlock()
 }
@@ -231,6 +222,12 @@ func queueChanged(a, b []QueueItem) bool {
 	}
 	for i := range a {
 		if a[i].Filename != b[i].Filename {
+			return true
+		}
+		if a[i].Title != b[i].Title {
+			return true
+		}
+		if a[i].Duration != b[i].Duration {
 			return true
 		}
 	}
