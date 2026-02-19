@@ -22,7 +22,7 @@ func Run(logger *slog.Logger) error {
 		return fmt.Errorf("config load failed: %w", err)
 	}
 
-	for _, dir := range []string{cfg.CacheDir, cfg.BinDir, cfg.UvBinDir} {
+	for _, dir := range []string{cfg.CacheDir, cfg.BinDir, cfg.UvBinDir, cfg.DataDir} {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			return fmt.Errorf("failed to create directory %s: %w", dir, err)
 		}

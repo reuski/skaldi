@@ -5,6 +5,9 @@ package player
 import (
 	"context"
 	"encoding/json"
+	"time"
+
+	"skaldi/internal/history"
 )
 
 func (m *Manager) StartEventLoop(ctx context.Context) {
@@ -74,8 +77,37 @@ func (m *Manager) handleEvent(e Event) {
 		}
 	case "playlist-pos":
 		if val, ok := e.Data.(float64); ok {
-			m.State.SetPlaylistPos(int(val))
+			idx := int(val)
+			m.State.SetPlaylistPos(idx)
 			shouldBroadcast = true
+
+			if idx >= 0 {
+				m.State.mu.RLock()
+				if idx < len(m.State.playlist) {
+					entry := m.State.playlist[idx]
+					histEntry := history.Entry{
+						Timestamp: time.Now(),
+					}
+					if track, ok := m.State.metadata[entry.Filename]; ok {
+						histEntry.Title = track.Title
+						histEntry.Artist = track.Artist
+						histEntry.SourceURL = track.WebpageURL
+
+						if histEntry.SourceURL == "" {
+							histEntry.SourceURL = track.URL
+						}
+					} else {
+						if histEntry.Title == "" {
+							histEntry.Title = entry.Filename
+						}
+					}
+
+					if histEntry.Title != "" || histEntry.SourceURL != "" {
+						m.history.Log(histEntry)
+					}
+				}
+				m.State.mu.RUnlock()
+			}
 		} else {
 			m.State.SetPlaylistPos(-1)
 			shouldBroadcast = true

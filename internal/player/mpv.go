@@ -14,12 +14,14 @@ import (
 	"time"
 
 	"skaldi/internal/bootstrap"
+	"skaldi/internal/history"
 )
 
 type Manager struct {
-	cfg    *bootstrap.Config
-	logger *slog.Logger
-	ipc    *IPCClient
+	cfg     *bootstrap.Config
+	logger  *slog.Logger
+	ipc     *IPCClient
+	history *history.Logger
 
 	cmd *exec.Cmd
 
@@ -37,6 +39,7 @@ func NewManager(cfg *bootstrap.Config, logger *slog.Logger) *Manager {
 		cfg:          cfg,
 		logger:       logger,
 		ipc:          NewIPCClient(cfg.MpvSocket, logger),
+		history:      history.New(cfg.DataDir, logger),
 		State:        NewState(),
 		StateUpdates: make(chan Snapshot, 100),
 		tempFiles:    make(map[string]bool),
@@ -148,6 +151,9 @@ func (m *Manager) Stop() {
 	if m.ipc != nil {
 		_, _ = m.ipc.Exec("quit")
 		m.ipc.Close()
+	}
+	if m.history != nil {
+		m.history.Close()
 	}
 	close(m.StateUpdates)
 }

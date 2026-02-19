@@ -14,6 +14,7 @@ type Config struct {
 	BinDir    string
 	UvBinDir  string
 	MpvSocket string
+	DataDir   string
 }
 
 func LoadConfig() (*Config, error) {
@@ -24,11 +25,22 @@ func LoadConfig() (*Config, error) {
 
 	cacheDir := filepath.Join(userCache, "skaldi")
 
+	dataDir := os.Getenv("XDG_DATA_HOME")
+	if dataDir == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return nil, fmt.Errorf("failed to determine user home directory: %w", err)
+		}
+		dataDir = filepath.Join(home, ".local", "share")
+	}
+	historyDir := filepath.Join(dataDir, "skaldi", "history")
+
 	return &Config{
 		CacheDir:  cacheDir,
 		BinDir:    filepath.Join(cacheDir, "bin"),
 		UvBinDir:  filepath.Join(cacheDir, "uv-bin"),
 		MpvSocket: filepath.Join(cacheDir, "mpv.sock"),
+		DataDir:   historyDir,
 	}, nil
 }
 
