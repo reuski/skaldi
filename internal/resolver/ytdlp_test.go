@@ -6,7 +6,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"skaldi/internal/bootstrap"
+	"github.com/reuski/skaldi/internal/bootstrap"
 )
 
 func TestTrackFromResponse(t *testing.T) {

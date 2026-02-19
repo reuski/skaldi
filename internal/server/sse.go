@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	"skaldi/internal/player"
+	"github.com/reuski/skaldi/internal/player"
 )
 
 type client struct {

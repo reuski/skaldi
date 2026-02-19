@@ -11,8 +11,8 @@ import (
 	"net/http"
 	"time"
 
-	"skaldi/internal/player"
-	"skaldi/internal/resolver"
+	"github.com/reuski/skaldi/internal/player"
+	"github.com/reuski/skaldi/internal/resolver"
 )
 
 type Server struct {

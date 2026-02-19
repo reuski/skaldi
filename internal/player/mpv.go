@@ -13,8 +13,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"skaldi/internal/bootstrap"
-	"skaldi/internal/history"
+	"github.com/reuski/skaldi/internal/bootstrap"
+	"github.com/reuski/skaldi/internal/history"
 )
 
 type Manager struct {

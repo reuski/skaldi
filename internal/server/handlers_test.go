@@ -12,9 +12,9 @@ import (
 	"strings"
 	"testing"
 
-	"skaldi/internal/bootstrap"
-	"skaldi/internal/player"
-	"skaldi/internal/resolver"
+	"github.com/reuski/skaldi/internal/bootstrap"
+	"github.com/reuski/skaldi/internal/player"
+	"github.com/reuski/skaldi/internal/resolver"
 )
 
 func setupTestServer(t *testing.T) (*Server, *player.Manager) {

@@ -12,7 +12,7 @@ import (
 	"strconv"
 	"time"
 
-	"skaldi/internal/resolver"
+	"github.com/reuski/skaldi/internal/resolver"
 )
 
 type QueueRequest struct {

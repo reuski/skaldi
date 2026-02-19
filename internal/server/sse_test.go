@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"skaldi/internal/player"
+	"github.com/reuski/skaldi/internal/player"
 )
 
 func TestNewBroadcaster(t *testing.T) {

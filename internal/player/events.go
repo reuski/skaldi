@@ -7,7 +7,7 @@ import (
 	"encoding/json"
 	"time"
 
-	"skaldi/internal/history"
+	"github.com/reuski/skaldi/internal/history"
 )
 
 func (m *Manager) StartEventLoop(ctx context.Context) {

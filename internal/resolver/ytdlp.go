@@ -14,7 +14,7 @@ import (
 	"sync"
 	"time"
 
-	"skaldi/internal/bootstrap"
+	"github.com/reuski/skaldi/internal/bootstrap"
 )
 
 type Track struct {

@@ -11,12 +11,12 @@ import (
 	"syscall"
 	"time"
 
-	"skaldi/internal/bootstrap"
-	"skaldi/internal/discovery"
-	"skaldi/internal/player"
-	"skaldi/internal/resolver"
-	"skaldi/internal/server"
-	"skaldi/web"
+	"github.com/reuski/skaldi/internal/bootstrap"
+	"github.com/reuski/skaldi/internal/discovery"
+	"github.com/reuski/skaldi/internal/player"
+	"github.com/reuski/skaldi/internal/resolver"
+	"github.com/reuski/skaldi/internal/server"
+	"github.com/reuski/skaldi/web"
 )
 
 func main() {

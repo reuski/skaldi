@@ -5,7 +5,7 @@ package player
 import (
 	"testing"
 
-	"skaldi/internal/resolver"
+	"github.com/reuski/skaldi/internal/resolver"
 )
 
 func TestNewState(t *testing.T) {

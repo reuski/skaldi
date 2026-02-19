@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	"skaldi/internal/resolver"
+	"github.com/reuski/skaldi/internal/resolver"
 )
 
 type PlaybackStatus string
