@@ -22,42 +22,30 @@ func Run(logger *slog.Logger) error {
 		return fmt.Errorf("config load failed: %w", err)
 	}
 
-	for _, dir := range []string{cfg.CacheDir, cfg.BinDir, cfg.UvBinDir, cfg.DataDir} {
-		if err := os.MkdirAll(dir, 0o755); err != nil {
-			return fmt.Errorf("failed to create directory %s: %w", dir, err)
-		}
+	if err := createDirectories(cfg); err != nil {
+		return err
 	}
 
-	state, err := LoadState(cfg.CacheDir)
+	state, err := loadOrCreateState(cfg)
 	if err != nil {
-		state = &State{}
+		return err
 	}
 
 	latest, err := FetchLatestVersions(cfg.CacheDir, logger)
 	if err != nil {
-		if state.Uv != "" && fileExists(cfg.UvPath()) {
+		if canUseInstalledVersions(state, cfg) {
 			logger.Debug("GitHub API unavailable, using installed versions")
 			return generateShim(cfg)
 		}
 		return fmt.Errorf("failed to fetch latest versions (first run requires network): %w", err)
 	}
 
-	if state.Uv != latest.Uv || !fileExists(cfg.UvPath()) {
-		logger.Debug("Installing uv", "version", latest.Uv)
-		if err := installUv(cfg, latest.Uv); err != nil {
-			return fmt.Errorf("failed to install uv: %w", err)
-		}
-		state.Uv = latest.Uv
-		_ = SaveState(cfg.CacheDir, state)
+	if err := installUvIfNeeded(cfg, state, latest, logger); err != nil {
+		return err
 	}
 
-	if state.Bun != latest.Bun || !fileExists(cfg.BunPath()) {
-		logger.Debug("Installing bun", "version", latest.Bun)
-		if err := installBun(cfg, latest.Bun); err != nil {
-			return fmt.Errorf("failed to install bun: %w", err)
-		}
-		state.Bun = latest.Bun
-		_ = SaveState(cfg.CacheDir, state)
+	if err := installBunIfNeeded(cfg, state, latest, logger); err != nil {
+		return err
 	}
 
 	if err := upgradeYtDlp(cfg, state, logger); err != nil {
@@ -136,4 +124,49 @@ func generateShim(cfg *Config) error {
 		cfg.RealYtDlpPath(), cfg.BunPath())
 
 	return os.WriteFile(cfg.ShimPath(), []byte(shimContent), 0o755)
+}
+
+func createDirectories(cfg *Config) error {
+	for _, dir := range []string{cfg.CacheDir, cfg.BinDir, cfg.UvBinDir, cfg.DataDir} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return fmt.Errorf("failed to create directory %s: %w", dir, err)
+		}
+	}
+	return nil
+}
+
+func loadOrCreateState(cfg *Config) (*State, error) {
+	state, err := LoadState(cfg.CacheDir)
+	if err != nil {
+		state = &State{}
+	}
+	return state, nil
+}
+
+func canUseInstalledVersions(state *State, cfg *Config) bool {
+	return state.Uv != "" && fileExists(cfg.UvPath())
+}
+
+func installUvIfNeeded(cfg *Config, state *State, latest *LatestVersions, logger *slog.Logger) error {
+	if state.Uv != latest.Uv || !fileExists(cfg.UvPath()) {
+		logger.Debug("Installing uv", "version", latest.Uv)
+		if err := installUv(cfg, latest.Uv); err != nil {
+			return fmt.Errorf("failed to install uv: %w", err)
+		}
+		state.Uv = latest.Uv
+		_ = SaveState(cfg.CacheDir, state)
+	}
+	return nil
+}
+
+func installBunIfNeeded(cfg *Config, state *State, latest *LatestVersions, logger *slog.Logger) error {
+	if state.Bun != latest.Bun || !fileExists(cfg.BunPath()) {
+		logger.Debug("Installing bun", "version", latest.Bun)
+		if err := installBun(cfg, latest.Bun); err != nil {
+			return fmt.Errorf("failed to install bun: %w", err)
+		}
+		state.Bun = latest.Bun
+		_ = SaveState(cfg.CacheDir, state)
+	}
+	return nil
 }

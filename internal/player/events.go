@@ -41,77 +41,17 @@ func (m *Manager) handleEvent(e Event) {
 
 	switch e.Name {
 	case "idle-active":
-		if val, ok := e.Data.(bool); ok {
-			m.State.SetIdle(val)
-			if val {
-				m.State.SetTimePos(0)
-				m.State.SetDuration(0)
-			}
-			shouldBroadcast = true
-		}
+		shouldBroadcast = m.handleIdleActive(e.Data)
 	case "pause":
-		if val, ok := e.Data.(bool); ok {
-			m.State.SetPaused(val)
-			shouldBroadcast = true
-		}
+		shouldBroadcast = m.handlePause(e.Data)
 	case "time-pos":
-		if val, ok := e.Data.(float64); ok {
-			m.State.SetTimePos(val)
-			shouldBroadcast = true
-		}
+		shouldBroadcast = m.handleTimePos(e.Data)
 	case "duration":
-		if val, ok := e.Data.(float64); ok {
-			m.State.SetDuration(val)
-			shouldBroadcast = true
-		}
+		shouldBroadcast = m.handleDuration(e.Data)
 	case "playlist":
-		data, err := json.Marshal(e.Data)
-		if err == nil {
-			var entries []MpvPlaylistEntry
-			if err := json.Unmarshal(data, &entries); err == nil {
-				m.State.SetPlaylist(entries)
-				m.State.PruneMetadata()
-				shouldBroadcast = true
-				m.checkTempFiles(entries)
-			}
-		}
+		shouldBroadcast = m.handlePlaylist(e.Data)
 	case "playlist-pos":
-		if val, ok := e.Data.(float64); ok {
-			idx := int(val)
-			m.State.SetPlaylistPos(idx)
-			shouldBroadcast = true
-
-			if idx >= 0 {
-				m.State.mu.RLock()
-				if idx < len(m.State.playlist) {
-					entry := m.State.playlist[idx]
-					histEntry := history.Entry{
-						Timestamp: time.Now(),
-					}
-					if track, ok := m.State.metadata[entry.Filename]; ok {
-						histEntry.Title = track.Title
-						histEntry.Artist = track.Artist
-						histEntry.SourceURL = track.WebpageURL
-
-						if histEntry.SourceURL == "" {
-							histEntry.SourceURL = track.URL
-						}
-					} else {
-						if histEntry.Title == "" {
-							histEntry.Title = entry.Filename
-						}
-					}
-
-					if histEntry.Title != "" || histEntry.SourceURL != "" {
-						m.history.Log(histEntry)
-					}
-				}
-				m.State.mu.RUnlock()
-			}
-		} else {
-			m.State.SetPlaylistPos(-1)
-			shouldBroadcast = true
-		}
+		shouldBroadcast = m.handlePlaylistPos(e.Data)
 	}
 
 	if shouldBroadcast {
@@ -120,4 +60,90 @@ func (m *Manager) handleEvent(e Event) {
 		default:
 		}
 	}
+}
+
+func (m *Manager) handleIdleActive(data interface{}) bool {
+	if val, ok := data.(bool); ok {
+		m.State.SetIdle(val)
+		if val {
+			m.State.SetTimePos(0)
+			m.State.SetDuration(0)
+		}
+		return true
+	}
+	return false
+}
+
+func (m *Manager) handlePause(data interface{}) bool {
+	if val, ok := data.(bool); ok {
+		m.State.SetPaused(val)
+		return true
+	}
+	return false
+}
+
+func (m *Manager) handleTimePos(data interface{}) bool {
+	if val, ok := data.(float64); ok {
+		m.State.SetTimePos(val)
+		return true
+	}
+	return false
+}
+
+func (m *Manager) handleDuration(data interface{}) bool {
+	if val, ok := data.(float64); ok {
+		m.State.SetDuration(val)
+		return true
+	}
+	return false
+}
+
+func (m *Manager) handlePlaylist(data interface{}) bool {
+	dataBytes, err := json.Marshal(data)
+	if err != nil {
+		return false
+	}
+	var entries []MpvPlaylistEntry
+	if err := json.Unmarshal(dataBytes, &entries); err != nil {
+		return false
+	}
+	m.State.SetPlaylist(entries)
+	m.State.PruneMetadata()
+	m.checkTempFiles(entries)
+	return true
+}
+
+func (m *Manager) handlePlaylistPos(data interface{}) bool {
+	if val, ok := data.(float64); ok {
+		idx := int(val)
+		m.State.SetPlaylistPos(idx)
+		if idx >= 0 {
+			m.State.mu.RLock()
+			if idx < len(m.State.playlist) {
+				entry := m.State.playlist[idx]
+				histEntry := history.Entry{
+					Timestamp: time.Now(),
+				}
+				if track, ok := m.State.metadata[entry.Filename]; ok {
+					histEntry.Title = track.Title
+					histEntry.Artist = track.Artist
+					histEntry.SourceURL = track.WebpageURL
+					if histEntry.SourceURL == "" {
+						histEntry.SourceURL = track.URL
+					}
+				} else {
+					if histEntry.Title == "" {
+						histEntry.Title = entry.Filename
+					}
+				}
+				if histEntry.Title != "" || histEntry.SourceURL != "" {
+					m.history.Log(histEntry)
+				}
+			}
+			m.State.mu.RUnlock()
+		}
+		return true
+	}
+	m.State.SetPlaylistPos(-1)
+	return true
 }
