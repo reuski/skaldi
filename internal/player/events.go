@@ -24,7 +24,17 @@ func (m *Manager) StartEventLoop(ctx context.Context) {
 }
 
 func (m *Manager) RegisterObservers() {
-	properties := []string{"idle-active", "pause", "time-pos", "duration", "playlist", "media-title", "playlist-pos"}
+	properties := []string{
+		"idle-active",
+		"pause",
+		"time-pos",
+		"duration",
+		"volume",
+		"mute",
+		"playlist",
+		"media-title",
+		"playlist-pos",
+	}
 	for _, prop := range properties {
 		go func(p string) {
 			_, _ = m.ipc.Exec("observe_property", 0, p)
@@ -48,6 +58,10 @@ func (m *Manager) handleEvent(e Event) {
 		shouldBroadcast = m.handleTimePos(e.Data)
 	case "duration":
 		shouldBroadcast = m.handleDuration(e.Data)
+	case "volume":
+		shouldBroadcast = m.handleVolume(e.Data)
+	case "mute":
+		shouldBroadcast = m.handleMute(e.Data)
 	case "playlist":
 		shouldBroadcast = m.handlePlaylist(e.Data)
 	case "playlist-pos":
@@ -93,6 +107,22 @@ func (m *Manager) handleTimePos(data interface{}) bool {
 func (m *Manager) handleDuration(data interface{}) bool {
 	if val, ok := data.(float64); ok {
 		m.State.SetDuration(val)
+		return true
+	}
+	return false
+}
+
+func (m *Manager) handleVolume(data interface{}) bool {
+	if val, ok := data.(float64); ok {
+		m.State.SetVolume(val)
+		return true
+	}
+	return false
+}
+
+func (m *Manager) handleMute(data interface{}) bool {
+	if val, ok := data.(bool); ok {
+		m.State.SetMuted(val)
 		return true
 	}
 	return false

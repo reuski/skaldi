@@ -20,8 +20,9 @@ type QueueRequest struct {
 }
 
 type PlaybackRequest struct {
-	Action string `json:"action"`
-	Index  int    `json:"index"`
+	Action string   `json:"action"`
+	Index  int      `json:"index"`
+	Value  *float64 `json:"value,omitempty"`
 }
 
 type MoveRequest struct {
@@ -126,6 +127,14 @@ func (s *Server) handlePlayback(w http.ResponseWriter, r *http.Request) {
 		_, err = s.player.Exec("playlist-prev")
 	case "play":
 		err = s.player.PlayIndex(req.Index)
+	case "set_volume":
+		if req.Value == nil {
+			http.Error(w, "Volume value is required", http.StatusBadRequest)
+			return
+		}
+		_, err = s.player.Exec("set_property", "volume", clampVolume(*req.Value))
+	case "toggle_mute":
+		_, err = s.player.Exec("cycle", "mute")
 	default:
 		http.Error(w, "Invalid action", http.StatusBadRequest)
 		return
@@ -138,6 +147,16 @@ func (s *Server) handlePlayback(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.WriteHeader(http.StatusOK)
+}
+
+func clampVolume(v float64) float64 {
+	if v < 0 {
+		return 0
+	}
+	if v > 100 {
+		return 100
+	}
+	return v
 }
 
 func (s *Server) handleRemove(w http.ResponseWriter, r *http.Request) {

@@ -30,6 +30,8 @@ type Snapshot struct {
 	Status      PlaybackStatus `json:"status"`
 	CurrentTime float64        `json:"current_time"`
 	Duration    float64        `json:"duration"`
+	Volume      float64        `json:"volume"`
+	Muted       bool           `json:"muted"`
 	Queue       []QueueItem    `json:"queue"`
 	History     []QueueItem    `json:"history"`
 	Upcoming    []QueueItem    `json:"upcoming"`
@@ -41,6 +43,8 @@ type Delta struct {
 	Version     uint64          `json:"v"`
 	CurrentTime *float64        `json:"current_time,omitempty"`
 	Duration    *float64        `json:"duration,omitempty"`
+	Volume      *float64        `json:"volume,omitempty"`
+	Muted       *bool           `json:"muted,omitempty"`
 	Status      *PlaybackStatus `json:"status,omitempty"`
 	CurrentIdx  *int            `json:"current_index,omitempty"`
 }
@@ -53,6 +57,8 @@ type State struct {
 	paused      bool
 	timePos     float64
 	duration    float64
+	volume      float64
+	muted       bool
 	playlist    []MpvPlaylistEntry
 	playlistPos int
 
@@ -72,6 +78,7 @@ func NewState() *State {
 		metadata:    make(map[string]resolver.Track),
 		metaAddedAt: make(map[string]time.Time),
 		playlist:    []MpvPlaylistEntry{},
+		volume:      100,
 		playlistPos: -1,
 	}
 }
@@ -133,6 +140,8 @@ func (s *State) Snapshot() Snapshot {
 		Status:      status,
 		CurrentTime: s.timePos,
 		Duration:    s.duration,
+		Volume:      s.volume,
+		Muted:       s.muted,
 		Queue:       queue,
 		History:     history,
 		Upcoming:    upcoming,
@@ -175,6 +184,24 @@ func (s *State) SetDuration(d float64) {
 			s.metadata[filename] = track
 		}
 	}
+}
+
+func (s *State) SetVolume(volume float64) {
+	s.mu.Lock()
+	if s.volume != volume {
+		s.volume = volume
+		s.version++
+	}
+	s.mu.Unlock()
+}
+
+func (s *State) SetMuted(muted bool) {
+	s.mu.Lock()
+	if s.muted != muted {
+		s.muted = muted
+		s.version++
+	}
+	s.mu.Unlock()
 }
 
 func (s *State) SetPlaylist(entries []MpvPlaylistEntry) {
@@ -247,12 +274,17 @@ func ComputeDelta(prev, curr Snapshot) *Delta {
 		delta := &Delta{Version: curr.Version}
 		delta.CurrentTime = &curr.CurrentTime
 		delta.Duration = &curr.Duration
+		delta.Volume = &curr.Volume
+		delta.Muted = &curr.Muted
 		delta.Status = &curr.Status
 		delta.CurrentIdx = &curr.CurrentIdx
 		return delta
 	}
 
-	if curr.CurrentTime == prev.CurrentTime && curr.Duration == prev.Duration {
+	if curr.CurrentTime == prev.CurrentTime &&
+		curr.Duration == prev.Duration &&
+		curr.Volume == prev.Volume &&
+		curr.Muted == prev.Muted {
 		return nil
 	}
 
@@ -262,6 +294,12 @@ func ComputeDelta(prev, curr Snapshot) *Delta {
 	}
 	if curr.Duration != prev.Duration {
 		delta.Duration = &curr.Duration
+	}
+	if curr.Volume != prev.Volume {
+		delta.Volume = &curr.Volume
+	}
+	if curr.Muted != prev.Muted {
+		delta.Muted = &curr.Muted
 	}
 	return delta
 }
