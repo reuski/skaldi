@@ -236,6 +236,76 @@ func TestHandleRemove_MissingPathValue(t *testing.T) {
 	}
 }
 
+func TestHandleMove_InvalidBody(t *testing.T) {
+	s, _ := setupTestServer(t)
+
+	tests := []struct {
+		name string
+		body string
+	}{
+		{
+			name: "empty_body",
+			body: "",
+		},
+		{
+			name: "invalid_json",
+			body: "not json",
+		},
+		{
+			name: "malformed_json",
+			body: `{"from": }`,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodPost, "/queue/move", strings.NewReader(tc.body))
+			rr := httptest.NewRecorder()
+
+			s.handleMove(rr, req)
+
+			if rr.Code != http.StatusBadRequest {
+				t.Errorf("Status = %d, want %d", rr.Code, http.StatusBadRequest)
+			}
+		})
+	}
+}
+
+func TestHandleMove_InvalidIndices(t *testing.T) {
+	s, _ := setupTestServer(t)
+
+	tests := []struct {
+		name string
+		body string
+	}{
+		{
+			name: "negative_from",
+			body: `{"from":-1,"to":2}`,
+		},
+		{
+			name: "negative_to",
+			body: `{"from":2,"to":-2}`,
+		},
+		{
+			name: "same_indices",
+			body: `{"from":2,"to":2}`,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodPost, "/queue/move", strings.NewReader(tc.body))
+			rr := httptest.NewRecorder()
+
+			s.handleMove(rr, req)
+
+			if rr.Code != http.StatusBadRequest {
+				t.Errorf("Status = %d, want %d", rr.Code, http.StatusBadRequest)
+			}
+		})
+	}
+}
+
 func TestQueueRequest_Unmarshal(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -349,6 +419,45 @@ func TestPlaybackRequest_Unmarshal(t *testing.T) {
 
 			if !tc.wantErr && req.Action != tc.wantAction {
 				t.Errorf("Action = %q, want %q", req.Action, tc.wantAction)
+			}
+		})
+	}
+}
+
+func TestMoveRequest_Unmarshal(t *testing.T) {
+	tests := []struct {
+		name    string
+		json    string
+		wantErr bool
+	}{
+		{
+			name:    "valid",
+			json:    `{"from":1,"to":3}`,
+			wantErr: false,
+		},
+		{
+			name:    "missing_fields",
+			json:    `{}`,
+			wantErr: false,
+		},
+		{
+			name:    "invalid_json",
+			json:    `{"from":`,
+			wantErr: true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			var req MoveRequest
+			err := json.Unmarshal([]byte(tc.json), &req)
+
+			if tc.wantErr && err == nil {
+				t.Error("Expected error but got none")
+			}
+
+			if !tc.wantErr && err != nil {
+				t.Errorf("Unexpected error: %v", err)
 			}
 		})
 	}

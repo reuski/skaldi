@@ -196,7 +196,16 @@
         border-radius: var(--radius);
         gap: var(--space-1);
         transition: background-color 0.15s;
-        cursor: pointer;
+        cursor: default;
+      }
+
+      .queue-item.reorderable {
+        cursor: grab;
+        touch-action: none;
+      }
+
+      .queue-item.reorderable:active {
+        cursor: grabbing;
       }
 
       .queue-item:focus {
@@ -219,6 +228,85 @@
 
       .queue-item.current {
         background: var(--surface);
+      }
+
+      .queue-item.dragging {
+        opacity: 0.45;
+        background: var(--surface);
+        pointer-events: none;
+      }
+
+      body.queue-reordering {
+        user-select: none;
+      }
+
+      .queue-placeholder {
+        height: 2px;
+        margin: -1px 8px;
+        list-style: none;
+        pointer-events: none;
+        position: relative;
+        animation: placeholder-in 0.12s ease-out;
+      }
+
+      .queue-placeholder::before {
+        content: "";
+        position: absolute;
+        left: 0;
+        top: 50%;
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: var(--primary);
+        transform: translateY(-50%);
+      }
+
+      .queue-placeholder::after {
+        content: "";
+        position: absolute;
+        left: 10px;
+        right: 0;
+        top: 50%;
+        height: 2px;
+        border-radius: 1px;
+        background: var(--primary);
+        opacity: 0.5;
+        transform: translateY(-50%);
+      }
+
+      @keyframes placeholder-in {
+        from { opacity: 0; }
+        to { opacity: 1; }
+      }
+
+      .play-now-btn {
+        background: none;
+        border: none;
+        color: var(--text-sec);
+        cursor: pointer;
+        opacity: 0.6;
+        transition:
+          opacity 0.15s,
+          color 0.15s,
+          transform 0.1s;
+        line-height: 1;
+        min-width: var(--space-3);
+        min-height: var(--space-3);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 0;
+        margin: 0;
+        flex-shrink: 0;
+      }
+
+      .play-now-btn:hover {
+        opacity: 1;
+        color: var(--primary);
+      }
+
+      .play-now-btn:active {
+        transform: scale(0.95);
       }
 
       .queue-item.current .title {
@@ -438,6 +526,10 @@
       }
 
       .queue-item.pending .delete-btn {
+        display: none;
+      }
+
+      .queue-item.pending .play-now-btn {
         display: none;
       }
 
@@ -750,6 +842,20 @@
       let pendingId = 0;
       let pendingItems = [];
       let lastData = null;
+      let isDraggingQueueItem = false;
+      let dragPlaceholder = null;
+      let pointerDrag = {
+        active: false,
+        started: false,
+        pointerId: null,
+        fromIdx: null,
+        startX: 0,
+        startY: 0,
+        minShiftY: 0,
+        item: null,
+        dropTo: null,
+        visualTo: null,
+      };
 
       let suggestTimeout;
       let suggestAbort = null;
@@ -1064,7 +1170,7 @@
         return d.innerHTML;
       }
 
-      function itemHTML(item, cls) {
+      function itemHTML(item, cls, reorderable) {
         const meta = item.metadata || {};
         const title = escHTML(meta.title || item.title || item.filename);
         const uploader = escHTML(meta.uploader || "");
@@ -1075,15 +1181,21 @@
           dur = fmtTime(dVal);
         }
         const parts = [uploader, dur].filter(Boolean).join(" · ");
+        const rowClass = "queue-item " + cls + (reorderable ? " reorderable" : "");
         return (
-          '<li class="queue-item ' +
-          cls +
-          '" tabindex="0" role="button" data-idx="' +
+          '<li class="' +
+          rowClass +
+          '" tabindex="0" data-idx="' +
           item.index +
+          '" data-reorderable="' +
+          (reorderable ? "1" : "0") +
           '">' +
+          '<button class="play-now-btn" type="button" data-idx="' +
+          item.index +
+          '" aria-label="Play now"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-play-circle"><circle cx="12" cy="12" r="10"/><polygon points="10 8 16 12 10 16 10 8"/></svg></button>' +
           '<img src="' +
           thumb +
-          '" class="thumb" loading="lazy" onerror="this.src=\'' +
+          '" class="thumb" loading="lazy" draggable="false" onerror="this.src=\'' +
           PLACEHOLDER +
           "'\">" +
           '<div class="info"><div class="title">' +
@@ -1093,7 +1205,7 @@
           "</div></div>" +
           '<button class="delete-btn" data-idx="' +
           item.index +
-          '" aria-label="Remove"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-trash-2"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/></svg></button></li>'
+          '" type="button" aria-label="Remove"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-trash-2"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/></svg></button></li>'
         );
       }
 
@@ -1110,7 +1222,7 @@
           '">' +
           '<img src="' +
           PLACEHOLDER +
-          '" class="thumb">' +
+          '" class="thumb" draggable="false">' +
           '<div class="info"><div class="title">' +
           (p.status === "error" ? statusText : label) +
           "</div>" +
@@ -1143,17 +1255,17 @@
 
         if (history.length) {
           html += '<li class="section-label">Played</li>';
-          for (const item of history) html += itemHTML(item, "played");
+          for (const item of history) html += itemHTML(item, "played", false);
         }
 
         if (np) {
           html += '<li class="section-label">Now Playing</li>';
-          html += itemHTML(np, "current");
+          html += itemHTML(np, "current", false);
         }
 
         if (upcoming.length || hasPending) {
           html += '<li class="section-label">Up Next</li>';
-          for (const item of upcoming) html += itemHTML(item, "");
+          for (const item of upcoming) html += itemHTML(item, "", true);
           for (const p of pendingItems) html += pendingItemHTML(p);
         }
 
@@ -1298,23 +1410,33 @@
       queueList.addEventListener("click", (e) => {
         const item = e.target.closest(".queue-item");
         if (!item || item.classList.contains("pending")) return;
+
+        if (isDraggingQueueItem) {
+          e.preventDefault();
+          e.stopPropagation();
+          return;
+        }
+
+        const playBtn = e.target.closest(".play-now-btn");
+        if (playBtn) {
+          playItem(parseInt(playBtn.dataset.idx, 10));
+          e.stopPropagation();
+          return;
+        }
+
         const btn = e.target.closest(".delete-btn");
         if (btn) {
           removeItem(parseInt(btn.dataset.idx, 10));
           e.stopPropagation();
           return;
         }
-        if (item) playItem(parseInt(item.dataset.idx, 10));
       });
 
       queueList.addEventListener("keydown", (e) => {
         const item = e.target.closest(".queue-item");
         if (!item || item.classList.contains("pending")) return;
 
-        if (e.key === "Enter") {
-          e.preventDefault();
-          playItem(parseInt(item.dataset.idx, 10));
-        } else if (e.key === "Delete" || e.key === "Backspace") {
+        if (e.key === "Delete" || e.key === "Backspace") {
           e.preventDefault();
           removeItem(parseInt(item.dataset.idx, 10));
         } else if (e.key === "ArrowDown") {
@@ -1332,6 +1454,211 @@
           }
           if (prev) prev.focus();
         }
+      });
+
+      function removeDragPlaceholder() {
+        if (dragPlaceholder && dragPlaceholder.parentNode) {
+          dragPlaceholder.parentNode.removeChild(dragPlaceholder);
+        }
+        dragPlaceholder = null;
+      }
+
+      function getReorderableItems() {
+        return Array.from(queueList.querySelectorAll('.queue-item[data-reorderable="1"]'));
+      }
+
+      function computeDrop(clientY) {
+        const items = getReorderableItems();
+        if (!items.length) return null;
+
+        const fromIdx = pointerDrag.fromIdx;
+        let closestGap = 0;
+        let closestDist = Infinity;
+        let refNode = items[0];
+
+        for (let i = 0; i <= items.length; i++) {
+          let gapY;
+          if (i === 0) {
+            gapY = items[0].getBoundingClientRect().top;
+          } else if (i === items.length) {
+            const r = items[i - 1].getBoundingClientRect();
+            gapY = r.top + r.height;
+          } else {
+            const prev = items[i - 1].getBoundingClientRect();
+            const curr = items[i].getBoundingClientRect();
+            gapY = (prev.top + prev.height + curr.top) / 2;
+          }
+
+          const dist = Math.abs(clientY - gapY);
+          if (dist < closestDist) {
+            closestDist = dist;
+            closestGap = i;
+            refNode = i < items.length ? items[i] : null;
+          }
+        }
+
+        const dragSlot = items.indexOf(pointerDrag.item);
+        if (closestGap === dragSlot || closestGap === dragSlot + 1) return null;
+
+        let targetIdx;
+        if (refNode === null) {
+          targetIdx = -1;
+        } else {
+          targetIdx = parseInt(refNode.dataset.idx, 10);
+          if (isNaN(targetIdx)) return null;
+        }
+
+        return { targetIdx, refNode };
+      }
+
+      function placeDragPlaceholder(drop) {
+        if (!drop) {
+          removeDragPlaceholder();
+          return false;
+        }
+
+        if (!dragPlaceholder) {
+          dragPlaceholder = document.createElement("li");
+          dragPlaceholder.className = "queue-placeholder";
+        }
+
+        if (drop.refNode === null) {
+          const items = getReorderableItems();
+          const last = items[items.length - 1];
+          if (last && last.nextSibling) {
+            queueList.insertBefore(dragPlaceholder, last.nextSibling);
+          } else {
+            queueList.appendChild(dragPlaceholder);
+          }
+        } else {
+          queueList.insertBefore(dragPlaceholder, drop.refNode);
+        }
+        return true;
+      }
+
+      function resetPointerDragState() {
+        removeDragPlaceholder();
+        if (pointerDrag.item) {
+          if (
+            pointerDrag.pointerId !== null &&
+            pointerDrag.item.hasPointerCapture(pointerDrag.pointerId)
+          ) {
+            pointerDrag.item.releasePointerCapture(pointerDrag.pointerId);
+          }
+          pointerDrag.item.classList.remove("dragging");
+        }
+        document.body.classList.remove("queue-reordering");
+        pointerDrag = {
+          active: false,
+          started: false,
+          pointerId: null,
+          fromIdx: null,
+          startX: 0,
+          startY: 0,
+          minShiftY: 0,
+          item: null,
+          dropTo: null,
+          visualTo: null,
+        };
+        setTimeout(() => {
+          isDraggingQueueItem = false;
+        }, 0);
+      }
+
+      queueList.addEventListener("pointerdown", (e) => {
+        if (e.button !== 0) return;
+        const item = e.target.closest('.queue-item[data-reorderable="1"]');
+        if (!item) {
+          return;
+        }
+        if (e.target.closest(".play-now-btn") || e.target.closest(".delete-btn")) {
+          return;
+        }
+        const fromIdx = parseInt(item.dataset.idx, 10);
+        if (isNaN(fromIdx)) {
+          return;
+        }
+
+        pointerDrag = {
+          active: true,
+          started: false,
+          pointerId: e.pointerId,
+          fromIdx,
+          startX: e.clientX,
+          startY: e.clientY,
+          minShiftY: Math.max(10, item.offsetHeight * 0.35),
+          item,
+          dropTo: null,
+          visualTo: null,
+        };
+
+        if (document.activeElement === item) {
+          item.blur();
+        }
+      });
+
+      document.addEventListener(
+        "pointermove",
+        (e) => {
+        if (!pointerDrag.active || e.pointerId !== pointerDrag.pointerId) {
+          return;
+        }
+
+        if (!pointerDrag.started) {
+          const dx = Math.abs(e.clientX - pointerDrag.startX);
+          const dy = Math.abs(e.clientY - pointerDrag.startY);
+          if (dx < 6 && dy < 6) {
+            return;
+          }
+
+          pointerDrag.started = true;
+          isDraggingQueueItem = true;
+          pointerDrag.item.classList.add("dragging");
+          document.body.classList.add("queue-reordering");
+          pointerDrag.item.setPointerCapture(pointerDrag.pointerId);
+        }
+
+        e.preventDefault();
+        if (Math.abs(e.clientY - pointerDrag.startY) < pointerDrag.minShiftY) {
+          pointerDrag.dropTo = null;
+          pointerDrag.visualTo = null;
+          removeDragPlaceholder();
+          return;
+        }
+
+        const drop = computeDrop(e.clientY);
+        const targetIdx = drop ? drop.targetIdx : null;
+        pointerDrag.dropTo = targetIdx;
+        if (targetIdx !== pointerDrag.visualTo || !dragPlaceholder) {
+          const shown = placeDragPlaceholder(drop);
+          pointerDrag.visualTo = shown ? targetIdx : null;
+        }
+        },
+        { passive: false }
+      );
+
+      document.addEventListener("pointerup", async (e) => {
+        if (!pointerDrag.active || e.pointerId !== pointerDrag.pointerId) {
+          return;
+        }
+
+        const wasDragging = pointerDrag.started;
+        const fromIdx = pointerDrag.fromIdx;
+        const dropTo = pointerDrag.dropTo;
+
+        resetPointerDragState();
+        if (!wasDragging || fromIdx === null || dropTo === null) {
+          return;
+        }
+
+        await moveItem(fromIdx, dropTo);
+      });
+
+      document.addEventListener("pointercancel", (e) => {
+        if (!pointerDrag.active || e.pointerId !== pointerDrag.pointerId) {
+          return;
+        }
+        resetPointerDragState();
       });
 
       form.onsubmit = async (e) => {
@@ -1465,6 +1792,20 @@
         try {
           await fetch("/queue/" + index, { method: "DELETE" });
         } catch (err) {
+          console.error(err);
+        }
+      }
+
+      async function moveItem(from, to) {
+        try {
+          const res = await fetch("/queue/move", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ from, to }),
+          });
+          if (!res.ok) throw new Error();
+        } catch (err) {
+          showToast("Could not reorder queue", true);
           console.error(err);
         }
       }

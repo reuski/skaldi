@@ -43,6 +43,7 @@ func New(logger *slog.Logger, p *player.Manager, r *resolver.Resolver, indexHTML
 	mux.HandleFunc("GET /suggest", s.handleSuggest)
 	mux.HandleFunc("GET /search", s.handleSearch)
 	mux.HandleFunc("POST /queue", s.handleQueue)
+	mux.HandleFunc("POST /queue/move", s.handleMove)
 	mux.HandleFunc("POST /playback", s.handlePlayback)
 	mux.HandleFunc("DELETE /queue/{index}", s.handleRemove)
 	mux.HandleFunc("GET /events", s.handleEvents)

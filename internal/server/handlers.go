@@ -24,6 +24,11 @@ type PlaybackRequest struct {
 	Index  int    `json:"index"`
 }
 
+type MoveRequest struct {
+	From int `json:"from"`
+	To   int `json:"to"`
+}
+
 func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path != "/" {
 		http.NotFound(w, r)
@@ -151,6 +156,32 @@ func (s *Server) handleRemove(w http.ResponseWriter, r *http.Request) {
 	if _, err := s.player.Exec("playlist-remove", index); err != nil {
 		s.logger.Error("Failed to remove item", "index", index, "error", err)
 		http.Error(w, "Remove failed", http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+}
+
+func (s *Server) handleMove(w http.ResponseWriter, r *http.Request) {
+	var req MoveRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	if req.From < 0 || req.To < -1 {
+		http.Error(w, "Invalid indices", http.StatusBadRequest)
+		return
+	}
+
+	if req.To >= 0 && req.From == req.To {
+		http.Error(w, "Source and destination cannot match", http.StatusBadRequest)
+		return
+	}
+
+	if _, err := s.player.Exec("playlist-move", req.From, req.To); err != nil {
+		s.logger.Error("Failed to move item", "from", req.From, "to", req.To, "error", err)
+		http.Error(w, "Move failed", http.StatusInternalServerError)
 		return
 	}
 
