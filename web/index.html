@@ -39,8 +39,8 @@
         background-color: var(--bg);
         color: var(--text-main);
         font-family:
-          -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", Roboto, "Helvetica Neue",
-          sans-serif;
+          -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI",
+          Roboto, "Helvetica Neue", sans-serif;
         margin: 0;
         padding: 0;
         height: 100dvh;
@@ -275,8 +275,12 @@
       }
 
       @keyframes placeholder-in {
-        from { opacity: 0; }
-        to { opacity: 1; }
+        from {
+          opacity: 0;
+        }
+        to {
+          opacity: 1;
+        }
       }
 
       .play-now-btn {
@@ -494,19 +498,21 @@
 
       .volume-knob {
         --knob-fill: 280deg;
-        width: 88px;
-        height: 88px;
+        width: 96px;
+        height: 96px;
         border-radius: 50%;
         position: relative;
         border: none;
-        background: #1c1916;
-        box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.5);
+        background: #151311; /* subtle dark recess */
+        box-shadow:
+          inset 0 2px 5px rgba(0, 0, 0, 0.8),
+          inset 0 -1px 1px rgba(255, 255, 255, 0.02),
+          /* subtle chrome edge reflection */ 0 1px 0 rgba(255, 255, 255, 0.05); /* very subtle lip of the chassis */
         cursor: pointer;
         user-select: none;
         -webkit-user-select: none;
         touch-action: manipulation;
         outline: none;
-        transition: filter 0.1s ease;
       }
 
       .volume-knob::after {
@@ -516,104 +522,117 @@
       .volume-knob::before {
         content: "";
         position: absolute;
-        inset: 2px;
+        inset: 5px; /* sharp thin gap from chassis */
         border-radius: 50%;
         z-index: 1;
         background: conic-gradient(
           from -140deg,
-          rgba(212, 175, 55, 0.8) 0deg var(--knob-fill),
-          rgba(255, 255, 255, 0.03) var(--knob-fill) 280deg,
+          rgba(212, 175, 55, 0.95) 0deg var(--knob-fill),
+          rgba(255, 255, 255, 0.02) var(--knob-fill) 280deg,
           transparent 280deg 360deg
         );
+        /* Razor-thin glowing line */
         -webkit-mask: radial-gradient(
           farthest-side,
-          transparent calc(100% - 2px),
+          transparent calc(100% - 1.5px),
           #000 calc(100% - 1px)
         );
         mask: radial-gradient(
           farthest-side,
-          transparent calc(100% - 2px),
+          transparent calc(100% - 1.5px),
           #000 calc(100% - 1px)
         );
         pointer-events: none;
-        filter: drop-shadow(0 0 3px rgba(212, 175, 55, 0.15));
+        filter: drop-shadow(0 0 3px rgba(212, 175, 55, 0.3));
+        transition: background 0.15s ease;
       }
 
       .volume-knob .knob-core {
         position: absolute;
-        inset: 8px;
+        inset: 13px; /* Pull in to leave space for arc */
         border-radius: 50%;
         z-index: 2;
         display: flex;
         align-items: center;
         justify-content: center;
-        background: #302b26;
-        box-shadow: 0 1px 4px rgba(0, 0, 0, 0.5);
+        /* Machined matte metal look */
+        background: radial-gradient(circle at 50% 15%, #34302c, #1a1816);
+        box-shadow:
+          0 4px 10px rgba(0, 0, 0, 0.7),
+          /* shadow cast onto recess */ inset 0 1px 1px
+            rgba(255, 255, 255, 0.15),
+          /* top edge highlight */ inset 0 -1px 2px rgba(0, 0, 0, 0.9); /* bottom edge shadow */
         pointer-events: none;
         transition:
-          box-shadow 0.1s ease,
-          transform 0.06s ease;
+          box-shadow 0.15s ease,
+          transform 0.08s ease,
+          background 0.15s ease;
       }
 
       .volume-knob .play-icon,
       .volume-knob .pause-icon {
-        width: 20px;
-        height: 20px;
-        color: var(--text-sec);
-        opacity: 0.6;
+        width: 15px;
+        height: 15px;
+        color: #5c554d; /* unlit state, very muted */
+        opacity: 0.8;
         transition:
-          opacity 0.1s ease,
-          color 0.1s ease,
-          filter 0.1s ease;
+          opacity 0.2s ease,
+          color 0.2s ease,
+          filter 0.2s ease;
       }
 
       .volume-knob.is-playing .play-icon,
       .volume-knob.is-playing .pause-icon {
         color: var(--primary);
-        opacity: 1;
-        filter: drop-shadow(0 0 3px rgba(212, 175, 55, 0.3));
+        opacity: 0.95;
+        filter: drop-shadow(
+          0 0 4px rgba(212, 175, 55, 0.4)
+        ); /* subtle sharp glow */
       }
 
       .volume-knob.is-playing::before {
-        filter: drop-shadow(0 0 4px rgba(212, 175, 55, 0.25));
+        filter: drop-shadow(0 0 5px rgba(212, 175, 55, 0.5));
       }
 
       .volume-knob:focus-visible {
-        outline: 2px solid rgba(212, 175, 55, 0.25);
-        outline-offset: 2px;
+        outline: 2px solid rgba(212, 175, 55, 0.3);
+        outline-offset: 4px;
       }
 
-      .volume-knob:hover {
-        filter: brightness(1.04);
+      .volume-knob:hover .knob-core {
+        background: radial-gradient(circle at 50% 15%, #38342f, #1e1b19);
       }
 
       .volume-knob:active .knob-core {
-        transform: translateY(0.5px);
-        box-shadow: 0 0 2px rgba(0, 0, 0, 0.4);
+        transform: translateY(1px);
+        box-shadow:
+          0 2px 4px rgba(0, 0, 0, 0.8),
+          inset 0 1px 1px rgba(255, 255, 255, 0.1),
+          inset 0 -1px 1px rgba(0, 0, 0, 0.9);
       }
 
       .volume-knob.is-muted::before {
         background: conic-gradient(
           from -140deg,
-          rgba(168, 159, 148, 0.12) 0deg var(--knob-fill),
+          rgba(255, 255, 255, 0.1) 0deg var(--knob-fill),
           transparent var(--knob-fill) 360deg
         );
         filter: none;
       }
 
-      .volume-knob.is-ticking {
-        animation: knob-tick 100ms ease-out;
+      .volume-knob.is-ticking .knob-core {
+        animation: knob-tick 120ms cubic-bezier(0.2, 0, 0, 1);
       }
 
       @keyframes knob-tick {
         0% {
-          transform: scale(1);
+          transform: translateY(0) scale(1);
         }
-        50% {
-          transform: scale(1.012);
+        40% {
+          transform: translateY(0.5px) scale(0.995);
         }
         100% {
-          transform: scale(1);
+          transform: translateY(0) scale(1);
         }
       }
 
@@ -865,8 +884,8 @@
         }
 
         .volume-knob {
-          width: 78px;
-          height: 78px;
+          width: 84px;
+          height: 84px;
         }
 
         .queue-section {
@@ -936,86 +955,85 @@
           <div class="controls">
             <div class="transport-group">
               <div class="transport-row">
-              <button class="ctrl-btn" id="prevBtn" aria-label="Previous">
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  width="20"
-                  height="20"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="2"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  class="lucide lucide-skip-back"
+                <button class="ctrl-btn" id="prevBtn" aria-label="Previous">
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    width="20"
+                    height="20"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    class="lucide lucide-skip-back"
+                  >
+                    <polygon points="19 20 9 12 19 4 19 20" />
+                    <line x1="5" x2="5" y1="19" y2="5" />
+                  </svg>
+                </button>
+                <div
+                  class="volume-knob"
+                  id="volumeKnob"
+                  role="slider"
+                  tabindex="0"
+                  aria-label="Playback volume"
+                  aria-valuemin="0"
+                  aria-valuemax="100"
+                  aria-valuenow="100"
+                  aria-valuetext="Volume 100"
                 >
-                  <polygon points="19 20 9 12 19 4 19 20" />
-                  <line x1="5" x2="5" y1="19" y2="5" />
-                </svg>
-              </button>
-              <div
-                class="volume-knob"
-                id="volumeKnob"
-                role="slider"
-                tabindex="0"
-                aria-label="Playback volume"
-                aria-valuemin="0"
-                aria-valuemax="100"
-                aria-valuenow="100"
-                aria-valuetext="Volume 100"
-              >
-                <div class="knob-core" aria-hidden="true">
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  width="22"
-                  height="22"
-                  viewBox="0 0 24 24"
-                  fill="currentColor"
-                  stroke="currentColor"
-                  stroke-width="2"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  class="play-icon lucide lucide-play"
-                >
-                  <polygon points="6 3 20 12 6 21 6 3" />
-                </svg>
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  width="22"
-                  height="22"
-                  viewBox="0 0 24 24"
-                  fill="currentColor"
-                  stroke="currentColor"
-                  stroke-width="2"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  class="pause-icon lucide lucide-pause"
-                  style="display: none"
-                >
-                  <rect width="4" height="16" x="6" y="4" rx="1" />
-                  <rect width="4" height="16" x="14" y="4" rx="1" />
-                </svg>
+                  <div class="knob-core" aria-hidden="true">
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      width="15"
+                      height="15"
+                      viewBox="0 0 24 24"
+                      fill="currentColor"
+                      stroke="none"
+                      class="play-icon lucide lucide-play"
+                    >
+                      <polygon points="6 3 20 12 6 21 6 3" />
+                    </svg>
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      width="15"
+                      height="15"
+                      viewBox="0 0 24 24"
+                      fill="currentColor"
+                      stroke="none"
+                      class="pause-icon lucide lucide-pause"
+                      style="display: none"
+                    >
+                      <rect width="4" height="16" x="6" y="4" rx="1" />
+                      <rect width="4" height="16" x="14" y="4" rx="1" />
+                    </svg>
+                  </div>
                 </div>
+                <button class="ctrl-btn" id="nextBtn" aria-label="Next">
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    width="20"
+                    height="20"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    class="lucide lucide-skip-forward"
+                  >
+                    <polygon points="5 4 15 12 5 20 5 4" />
+                    <line x1="19" x2="19" y1="5" y2="19" />
+                  </svg>
+                </button>
               </div>
-              <button class="ctrl-btn" id="nextBtn" aria-label="Next">
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  width="20"
-                  height="20"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="2"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  class="lucide lucide-skip-forward"
-                >
-                  <polygon points="5 4 15 12 5 20 5 4" />
-                  <line x1="19" x2="19" y1="5" y2="19" />
-                </svg>
-              </button>
-              </div>
-              <button type="button" class="volume-badge" id="muteBtn" aria-pressed="false">
+              <button
+                type="button"
+                class="volume-badge"
+                id="muteBtn"
+                aria-pressed="false"
+              >
                 Mute
               </button>
             </div>
@@ -1030,7 +1048,13 @@
       const PLACEHOLDER =
         "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI2NCIgaGVpZ2h0PSI0OCIgc3R5bGU9ImJhY2tncm91bmQ6IzE0MTQxNCI+PC9zdmc+";
 
-      let prev = { queueKey: null, npKey: null, status: null, volume: null, muted: null };
+      let prev = {
+        queueKey: null,
+        npKey: null,
+        status: null,
+        volume: null,
+        muted: null,
+      };
 
       const $ = (id) => document.getElementById(id);
       const npTitle = $("npTitle");
@@ -1141,7 +1165,9 @@
           pendingMusic: true,
         };
 
-        fetch("/search?q=" + encodeURIComponent(q) + "&src=yt", { signal: ytAbort.signal })
+        fetch("/search?q=" + encodeURIComponent(q) + "&src=yt", {
+          signal: ytAbort.signal,
+        })
           .then((r) => (r.ok ? r.json() : []))
           .then((tracks) => mergeSearchResults(q, tracks, false))
           .catch(() => {});
@@ -1204,7 +1230,8 @@
       function renderMergedResults() {
         if (!searchState.results.length) {
           if (!searchState.pendingMusic) {
-            suggestions.innerHTML = '<div class="loading-item">No results found</div>';
+            suggestions.innerHTML =
+              '<div class="loading-item">No results found</div>';
           }
           return;
         }
@@ -1287,7 +1314,9 @@
       }
 
       urlInput.addEventListener("keydown", (e) => {
-        const items = suggestions.querySelectorAll(".suggest-text, .suggestion-item");
+        const items = suggestions.querySelectorAll(
+          ".suggest-text, .suggestion-item",
+        );
         const isActive = suggestions.classList.contains("active");
 
         if (e.key === "ArrowDown" || (e.key === "Tab" && !e.shiftKey)) {
@@ -1303,7 +1332,8 @@
             if (currentFocusIndex === -1) {
               currentFocusIndex = items.length - 1;
             } else {
-              currentFocusIndex = (currentFocusIndex - 1 + items.length) % items.length;
+              currentFocusIndex =
+                (currentFocusIndex - 1 + items.length) % items.length;
             }
             updateSelection(items);
             updatePrefetchTarget();
@@ -1399,7 +1429,10 @@
         clearTimeout(knobTickTimer);
         volumeKnob.offsetWidth;
         volumeKnob.classList.add("is-ticking");
-        knobTickTimer = setTimeout(() => volumeKnob.classList.remove("is-ticking"), 140);
+        knobTickTimer = setTimeout(
+          () => volumeKnob.classList.remove("is-ticking"),
+          140,
+        );
       }
 
       function renderVolume(data) {
@@ -1416,7 +1449,7 @@
           "aria-valuetext",
           (prev.status === "playing" ? "Playing, " : "Paused, ") +
             (muted ? "muted, volume " : "volume ") +
-            Math.round(volume)
+            Math.round(volume),
         );
         muteBtn.textContent = muted ? "Muted" : "Mute";
         muteBtn.setAttribute("aria-pressed", muted ? "true" : "false");
@@ -1451,7 +1484,9 @@
       async function toggleMute() {
         const nextMuted = !displayedMuted();
         pendingMute = nextMuted;
-        renderVolume(lastData || { volume: displayedVolume(), muted: nextMuted });
+        renderVolume(
+          lastData || { volume: displayedVolume(), muted: nextMuted },
+        );
         pulseKnob();
         const ok = await playback("toggle_mute");
         if (!ok && pendingMute === nextMuted) {
@@ -1469,11 +1504,14 @@
           wheelVolumeCarry += e.deltaY;
           if (Math.abs(wheelVolumeCarry) < unit) return;
           const dir = wheelVolumeCarry < 0 ? 1 : -1;
-          const steps = Math.min(4, Math.floor(Math.abs(wheelVolumeCarry) / unit));
+          const steps = Math.min(
+            4,
+            Math.floor(Math.abs(wheelVolumeCarry) / unit),
+          );
           wheelVolumeCarry -= Math.sign(wheelVolumeCarry) * steps * unit;
           adjustVolume(dir * steps);
         },
-        { passive: false }
+        { passive: false },
       );
 
       volumeKnob.addEventListener("click", (e) => {
@@ -1543,7 +1581,8 @@
           dur = fmtTime(dVal);
         }
         const parts = [uploader, dur].filter(Boolean).join(" · ");
-        const rowClass = "queue-item " + cls + (reorderable ? " reorderable" : "");
+        const rowClass =
+          "queue-item " + cls + (reorderable ? " reorderable" : "");
         return (
           '<li class="' +
           rowClass +
@@ -1574,7 +1613,11 @@
       function pendingItemHTML(p) {
         const label = escHTML(p.label);
         const statusText =
-          p.status === "error" ? label : p.type === "upload" ? "Uploading..." : "Resolving...";
+          p.status === "error"
+            ? label
+            : p.type === "upload"
+              ? "Uploading..."
+              : "Resolving...";
         const cls = "pending" + (p.status === "error" ? " error" : "");
         return (
           '<li class="queue-item ' +
@@ -1634,7 +1677,9 @@
         queueList.innerHTML = html;
 
         if (focusIdx !== null) {
-          const newItem = queueList.querySelector('.queue-item[data-idx="' + focusIdx + '"]');
+          const newItem = queueList.querySelector(
+            '.queue-item[data-idx="' + focusIdx + '"]',
+          );
           if (newItem) newItem.focus();
         }
       }
@@ -1652,7 +1697,8 @@
       }
 
       function renderProgress(data) {
-        const pct = data.duration > 0 ? (data.current_time / data.duration) * 100 : 0;
+        const pct =
+          data.duration > 0 ? (data.current_time / data.duration) * 100 : 0;
         progFill.style.width = pct + "%";
         currTimeE.textContent = fmtTime(data.current_time);
         durTimeE.textContent = fmtTime(data.duration);
@@ -1687,10 +1733,17 @@
       function onState(data) {
         lastData = data;
 
-        if (pendingVolume !== null && Math.abs((data.volume ?? pendingVolume) - pendingVolume) < 0.01) {
+        if (
+          pendingVolume !== null &&
+          Math.abs((data.volume ?? pendingVolume) - pendingVolume) < 0.01
+        ) {
           pendingVolume = null;
         }
-        if (pendingMute !== null && typeof data.muted === "boolean" && data.muted === pendingMute) {
+        if (
+          pendingMute !== null &&
+          typeof data.muted === "boolean" &&
+          data.muted === pendingMute
+        ) {
           pendingMute = null;
         }
 
@@ -1728,7 +1781,8 @@
 
       function applyDelta(base, delta) {
         const result = { ...base, v: delta.v };
-        if (delta.current_time !== undefined) result.current_time = delta.current_time;
+        if (delta.current_time !== undefined)
+          result.current_time = delta.current_time;
         if (delta.duration !== undefined) result.duration = delta.duration;
         if (delta.volume !== undefined) result.volume = delta.volume;
         if (delta.muted !== undefined) result.muted = delta.muted;
@@ -1787,7 +1841,10 @@
       connectSSE();
 
       document.addEventListener("visibilitychange", () => {
-        if (document.visibilityState === "visible" && evtSource.readyState !== EventSource.OPEN) {
+        if (
+          document.visibilityState === "visible" &&
+          evtSource.readyState !== EventSource.OPEN
+        ) {
           connectSSE();
         }
       });
@@ -1849,7 +1906,9 @@
       }
 
       function getReorderableItems() {
-        return Array.from(queueList.querySelectorAll('.queue-item[data-reorderable="1"]'));
+        return Array.from(
+          queueList.querySelectorAll('.queue-item[data-reorderable="1"]'),
+        );
       }
 
       function computeDrop(clientY) {
@@ -1956,7 +2015,10 @@
         if (!item) {
           return;
         }
-        if (e.target.closest(".play-now-btn") || e.target.closest(".delete-btn")) {
+        if (
+          e.target.closest(".play-now-btn") ||
+          e.target.closest(".delete-btn")
+        ) {
           return;
         }
         const fromIdx = parseInt(item.dataset.idx, 10);
@@ -1985,41 +2047,43 @@
       document.addEventListener(
         "pointermove",
         (e) => {
-        if (!pointerDrag.active || e.pointerId !== pointerDrag.pointerId) {
-          return;
-        }
-
-        if (!pointerDrag.started) {
-          const dx = Math.abs(e.clientX - pointerDrag.startX);
-          const dy = Math.abs(e.clientY - pointerDrag.startY);
-          if (dx < 6 && dy < 6) {
+          if (!pointerDrag.active || e.pointerId !== pointerDrag.pointerId) {
             return;
           }
 
-          pointerDrag.started = true;
-          isDraggingQueueItem = true;
-          pointerDrag.item.classList.add("dragging");
-          document.body.classList.add("queue-reordering");
-          pointerDrag.item.setPointerCapture(pointerDrag.pointerId);
-        }
+          if (!pointerDrag.started) {
+            const dx = Math.abs(e.clientX - pointerDrag.startX);
+            const dy = Math.abs(e.clientY - pointerDrag.startY);
+            if (dx < 6 && dy < 6) {
+              return;
+            }
 
-        e.preventDefault();
-        if (Math.abs(e.clientY - pointerDrag.startY) < pointerDrag.minShiftY) {
-          pointerDrag.dropTo = null;
-          pointerDrag.visualTo = null;
-          removeDragPlaceholder();
-          return;
-        }
+            pointerDrag.started = true;
+            isDraggingQueueItem = true;
+            pointerDrag.item.classList.add("dragging");
+            document.body.classList.add("queue-reordering");
+            pointerDrag.item.setPointerCapture(pointerDrag.pointerId);
+          }
 
-        const drop = computeDrop(e.clientY);
-        const targetIdx = drop ? drop.targetIdx : null;
-        pointerDrag.dropTo = targetIdx;
-        if (targetIdx !== pointerDrag.visualTo || !dragPlaceholder) {
-          const shown = placeDragPlaceholder(drop);
-          pointerDrag.visualTo = shown ? targetIdx : null;
-        }
+          e.preventDefault();
+          if (
+            Math.abs(e.clientY - pointerDrag.startY) < pointerDrag.minShiftY
+          ) {
+            pointerDrag.dropTo = null;
+            pointerDrag.visualTo = null;
+            removeDragPlaceholder();
+            return;
+          }
+
+          const drop = computeDrop(e.clientY);
+          const targetIdx = drop ? drop.targetIdx : null;
+          pointerDrag.dropTo = targetIdx;
+          if (targetIdx !== pointerDrag.visualTo || !dragPlaceholder) {
+            const shown = placeDragPlaceholder(drop);
+            pointerDrag.visualTo = shown ? targetIdx : null;
+          }
         },
-        { passive: false }
+        { passive: false },
       );
 
       document.addEventListener("pointerup", async (e) => {
@@ -2294,7 +2358,9 @@
           return;
         }
 
-        const pasted = (e.clipboardData || window.clipboardData).getData("text");
+        const pasted = (e.clipboardData || window.clipboardData).getData(
+          "text",
+        );
         const urlMatch = pasted.match(/https?:\/\/[^\s]+/);
         if (!urlMatch) return;
 
