@@ -33,7 +33,7 @@ func TestLogger(t *testing.T) {
 	// Wait a bit for the background worker to write
 	time.Sleep(100 * time.Millisecond)
 
-	filename := "history_" + now.Format("2006-01-02") + ".jsonl"
+	filename := "history_" + now.Local().Format("2006-01-02") + ".jsonl"
 	path := filepath.Join(tmpDir, filename)
 
 	content, err := os.ReadFile(path)

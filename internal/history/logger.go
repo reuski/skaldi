@@ -24,6 +24,8 @@ type Logger struct {
 	logger  *slog.Logger
 	entries chan Entry
 	wg      sync.WaitGroup
+	file    *os.File
+	date    string
 }
 
 func New(dataDir string, logger *slog.Logger) *Logger {
@@ -52,6 +54,11 @@ func (l *Logger) Close() {
 
 func (l *Logger) run() {
 	defer l.wg.Done()
+	defer func() {
+		if l.file != nil {
+			l.file.Close()
+		}
+	}()
 
 	for entry := range l.entries {
 		if err := l.write(entry); err != nil {
@@ -61,21 +68,34 @@ func (l *Logger) run() {
 }
 
 func (l *Logger) write(e Entry) error {
-	filename := fmt.Sprintf("history_%s.jsonl", e.Timestamp.Format("2006-01-02"))
-	path := filepath.Join(l.dataDir, filename)
+	date := e.Timestamp.Local().Format("2006-01-02")
+	if l.file == nil || l.date != date {
+		if l.file != nil {
+			l.file.Close()
+		}
 
-	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-	if err != nil {
-		return fmt.Errorf("failed to open history file: %w", err)
+		if err := os.MkdirAll(l.dataDir, 0755); err != nil {
+			return fmt.Errorf("failed to create data dir: %w", err)
+		}
+
+		filename := fmt.Sprintf("history_%s.jsonl", date)
+		path := filepath.Join(l.dataDir, filename)
+
+		f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+		if err != nil {
+			return fmt.Errorf("failed to open history file: %w", err)
+		}
+
+		l.file = f
+		l.date = date
 	}
-	defer f.Close()
 
 	data, err := json.Marshal(e)
 	if err != nil {
 		return fmt.Errorf("failed to marshal entry: %w", err)
 	}
 
-	if _, err := f.Write(append(data, '\n')); err != nil {
+	if _, err := l.file.Write(append(data, '\n')); err != nil {
 		return fmt.Errorf("failed to write entry: %w", err)
 	}
 	return nil
