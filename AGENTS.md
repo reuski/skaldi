@@ -11,7 +11,7 @@ Development guidelines for the Skaldi network jukebox.
 
 ## Stack
 
-**Backend (Go 1.23)**
+**Backend (Go 1.24)**
 - Stdlib: `net/http`, `log/slog`, `os/exec`
 - Concurrency: channels for state, `sync.RWMutex` for shared data
 - Contexts required for all long-running operations
