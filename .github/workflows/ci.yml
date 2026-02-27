@@ -17,19 +17,17 @@ jobs:
           go-version: "1.23"
           cache: true
 
-      - name: Lint
-        uses: golangci/golangci-lint-action@v6
-        with:
-          version: latest
+      - name: Install just
+        uses: taiki-e/install-action@just
 
-      - name: Vet
-        run: go vet ./...
+      - name: Lint
+        run: just lint
 
       - name: Test
-        run: go test -v -race ./internal/...
+        run: just test
 
       - name: Vulnerability Check
-        uses: golang/govulncheck-action@v1
+        run: just vuln
 
       - name: Build
-        run: go build -o skaldi ./cmd/skaldi
+        run: just build

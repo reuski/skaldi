@@ -46,11 +46,11 @@ web/
 ## Commands
 
 ```bash
-make all      # lint, test, build
-make build    # go build
-make test     # go test -v ./internal/...
-make lint     # gofmt, golangci-lint, go vet
-make vuln     # govulncheck
+just all      # lint, test, build
+just build    # go build
+just test     # go test -v -race ./internal/...
+just lint     # gofmt, golangci-lint, go vet
+just vuln     # govulncheck
 ```
 
 ## Invariants

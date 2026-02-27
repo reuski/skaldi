@@ -54,10 +54,10 @@ No authentication. Exposing to the internet allows arbitrary uploads and RCE via
 ## Development
 
 ```bash
-make all    # lint, test, build
-make lint   # golangci-lint, go vet
-make test   # go test -v ./internal/...
-make vuln   # govulncheck
+just all    # lint, test, build
+just lint   # gofmt, golangci-lint, go vet
+just test   # go test -v -race ./internal/...
+just vuln   # govulncheck
 ```
 
 See [`AGENTS.md`](./AGENTS.md) for architecture guidelines.
