@@ -748,6 +748,23 @@
         text-overflow: ellipsis;
       }
 
+      .suggest-text.typeahead-track {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .suggest-text.typeahead-track .typeahead-track-line {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      .suggest-text.typeahead-track .duration {
+        margin-left: auto;
+        padding-left: 8px;
+      }
+
       .suggest-text:last-child {
         border-bottom: none;
       }
@@ -828,7 +845,7 @@
         color: var(--primary);
       }
 
-      .sug-duration {
+      .duration {
         font-size: 12px;
         color: var(--text-dim);
         font-variant-numeric: tabular-nums;
@@ -1159,7 +1176,8 @@
 
       function renderMergedResults() {
         if (!searchState.results.length) {
-          suggestions.innerHTML = '<div class="loading-item">No results found</div>';
+          suggestions.innerHTML =
+            '<div class="loading-item">No results found</div>';
           return;
         }
 
@@ -1169,18 +1187,10 @@
       function renderTrackItemHTML(t) {
         const title = escHTML(t.title);
         const artist = escHTML(t.artist || t.uploader);
-        const thumb = t.thumbnail || PLACEHOLDER;
-        let dur = "";
-        if (t.duration > 0) {
-          dur = fmtTime(t.duration);
-        }
-        const source = t.source || (t.is_music ? "ytmusic" : "youtube");
-        const sourceBadge =
-          source === "subsonic"
-            ? '<span class="badge library-badge"><svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-disc-3"><circle cx="12" cy="12" r="10"/><path d="M12 12h.01"/><path d="M16 12h.01"/><path d="M8 12h.01"/></svg></span>'
-            : source === "ytmusic"
-              ? '<span class="badge music-badge"><svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-music"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg></span>'
-              : "";
+        const source = trackSource(t);
+        const thumb = trackThumb(t);
+        const dur = trackDuration(t);
+        const sourceBadge = renderSourceBadge(source);
 
         return (
           '<div class="suggestion-item" data-url="' +
@@ -1198,9 +1208,53 @@
           artist +
           "</div>" +
           "</div>" +
-          (dur ? '<div class="sug-duration">' + dur + "</div>" : "") +
+          '<div class="duration">' +
+          dur +
+          "</div>" +
           "</div>"
         );
+      }
+
+      function renderTypeaheadTrackItemHTML(t) {
+        const title = escHTML(t.title || "");
+        const artist = escHTML(t.artist || t.uploader || "Unknown");
+        const dur = trackDuration(t);
+        const line = artist + " - " + title;
+        return (
+          '<div class="suggest-text typeahead-track" data-url="' +
+          (t.webpage_url || t.url) +
+          '">' +
+          '<span class="typeahead-track-line">' +
+          line +
+          "</span>" +
+          '<span class="duration">' +
+          dur +
+          "</span>" +
+          "</div>"
+        );
+      }
+
+      function trackSource(t) {
+        return t.source || (t.is_music ? "ytmusic" : "youtube");
+      }
+
+      function trackDuration(t) {
+        return fmtTime(t.duration || 0);
+      }
+
+      function trackThumb(t) {
+        if (t.thumbnail) return t.thumbnail;
+        return PLACEHOLDER;
+      }
+
+      function renderSourceBadge(source) {
+        if (source === "subsonic") {
+          return '<span class="badge library-badge"><svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-disc-3"><circle cx="12" cy="12" r="10"/><path d="M12 12h.01"/><path d="M16 12h.01"/><path d="M8 12h.01"/></svg></span>';
+        }
+        if (source === "ytmusic") {
+          return '<span class="badge music-badge"><svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-music"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg></span>';
+        }
+        return "";
       }
 
       async function searchTracks(q) {
@@ -1214,16 +1268,20 @@
         searchState.fullAbort = fullAbort;
 
         try {
-          const res = await fetch("/search?q=" + encodeURIComponent(q) + "&mode=full", {
-            signal: fullAbort.signal,
-          });
+          const res = await fetch(
+            "/search?q=" + encodeURIComponent(q) + "&mode=full",
+            {
+              signal: fullAbort.signal,
+            },
+          );
           if (!res.ok) throw new Error();
           const payload = await res.json();
           searchState.results = (payload.tracks || []).map(trackToItem);
           renderMergedResults();
         } catch (err) {
           if (err.name !== "AbortError") {
-            suggestions.innerHTML = '<div class="loading-item">Search failed</div>';
+            suggestions.innerHTML =
+              '<div class="loading-item">Search failed</div>';
           }
         }
       }
@@ -1233,7 +1291,9 @@
         const textHTML = currentSuggestions
           .map((s) => '<div class="suggest-text">' + escHTML(s) + "</div>")
           .join("");
-        const trackHTML = (tracks || []).map(renderTrackItemHTML).join("");
+        const trackHTML = (tracks || [])
+          .map(renderTypeaheadTrackItemHTML)
+          .join("");
         if (!textHTML && !trackHTML) {
           closeSuggestions();
           return;
@@ -1326,6 +1386,11 @@
         e.stopPropagation();
         const textItem = e.target.closest(".suggest-text");
         if (textItem) {
+          if (textItem.dataset.url) {
+            addToQueue(textItem.dataset.url);
+            closeSuggestions();
+            return;
+          }
           const q = textItem.textContent;
           urlInput.value = q;
           searchTracks(q);
