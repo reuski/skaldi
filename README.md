@@ -30,22 +30,61 @@ First run auto-installs `uv`, `bun`, `yt-dlp` to `~/.cache/skaldi/`.
 
 - **Queue**: YouTube URLs, direct file uploads (drag-drop or paste)
 - **Search**: YouTube + YouTube Music with autocomplete
+- **External Library**: OpenSubsonic personal library integration
 - **Sync**: Real-time SSE state updates
 - **Discovery**: Auto-registers as `skaldi.local` via mDNS
 - **Audio**: Dynamic range compression via `dynaudnorm`
 
+## Config File (OpenSubsonic)
+
+Create `config.json` at:
+
+- Linux/macOS default: `~/.config/skaldi/config.json`
+- Or `${XDG_CONFIG_HOME}/skaldi/config.json`
+
+Example:
+
+```json
+{
+  "opensubsonic": {
+    "enabled": true,
+    "library_id": "personal",
+    "base_url": "https://navidrome.example.com",
+    "username": "alice",
+    "token": "server_token_secret",
+    "timeout_ms": 2500
+  }
+}
+```
+
+Notes:
+
+- Missing/empty config disables external search silently.
+- Invalid enabled config fails fast on startup.
+- External cover art is deferred in v1; placeholder thumbnails are shown.
+
 ## API
 
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/` | Web UI |
-| GET | `/events` | SSE stream |
-| GET | `/suggest?q={query}` | Autocomplete suggestions |
-| GET | `/search?q={query}` | Search YouTube/Music |
-| POST | `/queue` | Add URL `{"url":"..."}` |
-| DELETE | `/queue/{index}` | Remove item |
-| POST | `/playback` | Control `{"action":"pause|resume|skip|previous|play"}` |
-| POST | `/upload` | File upload (multipart/form-data) |
+| Method | Path                               | Description                                              |
+| ------ | ---------------------------------- | -------------------------------------------------------- |
+| GET    | `/`                                | Web UI                                                   |
+| GET    | `/events`                          | SSE stream                                               |
+| GET    | `/suggest?q={query}`               | Autocomplete suggestions                                 |
+| GET    | `/search?q={query}&mode=typeahead` | Text suggestions + external track hits                   |
+| GET    | `/search?q={query}&mode=full`      | Merged track search (OpenSubsonic + YT Music + YouTube) |
+| POST   | `/queue`                           | Add URL `{"url":"..."}`                                  |
+| DELETE | `/queue/{index}`                   | Remove item                                              |
+| POST   | `/playback`                        | Control `{"action":"pause\\|resume\\|skip\\|previous\\|play"}` |
+| POST   | `/upload`                          | File upload (multipart/form-data)                        |
+
+`/search` response shape:
+
+```json
+{
+  "suggestions": ["query text", "another"],
+  "tracks": []
+}
+```
 
 ## Security
 
