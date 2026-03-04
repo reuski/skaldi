@@ -819,7 +819,7 @@
         line-height: 1.2;
       }
 
-      .music-badge {
+      .badge {
         display: inline-flex;
         align-items: center;
         justify-content: center;
@@ -1095,13 +1095,11 @@
       };
 
       let suggestTimeout;
-      let suggestAbort = null;
       let searchState = {
         query: null,
-        ytAbort: null,
-        musicAbort: null,
+        typeaheadAbort: null,
+        fullAbort: null,
         results: [],
-        pendingMusic: false,
       };
       let currentSuggestions = [];
       let currentFocusIndex = -1;
@@ -1110,17 +1108,14 @@
       urlInput.addEventListener("input", (e) => {
         const q = e.target.value.trim();
         clearTimeout(suggestTimeout);
-        if (suggestAbort) suggestAbort.abort();
-
-        if (searchState.ytAbort) searchState.ytAbort.abort();
-        if (searchState.musicAbort) searchState.musicAbort.abort();
+        if (searchState.typeaheadAbort) searchState.typeaheadAbort.abort();
+        if (searchState.fullAbort) searchState.fullAbort.abort();
 
         searchState = {
           query: null,
-          ytAbort: null,
-          musicAbort: null,
+          typeaheadAbort: null,
+          fullAbort: null,
           results: [],
-          pendingMusic: false,
         };
 
         if (!q || q.startsWith("http")) {
@@ -1128,22 +1123,25 @@
           return;
         }
 
-        suggestTimeout = setTimeout(() => fetchSuggestions(q), 150);
+        suggestTimeout = setTimeout(() => fetchTypeahead(q), 150);
       });
 
-      async function fetchSuggestions(q) {
-        suggestAbort = new AbortController();
+      async function fetchTypeahead(q) {
+        const abort = new AbortController();
+        searchState.query = q;
+        searchState.typeaheadAbort = abort;
         try {
-          const res = await fetch("/suggest?q=" + encodeURIComponent(q), {
-            signal: suggestAbort.signal,
-          });
+          const res = await fetch(
+            "/search?q=" + encodeURIComponent(q) + "&mode=typeahead",
+            {
+              signal: abort.signal,
+            },
+          );
           if (!res.ok) throw new Error();
-          const items = await res.json();
+          const payload = await res.json();
+          if (searchState.query !== q) return;
 
-          currentSuggestions = items || [];
-          renderTypeahead(items);
-
-          startParallelSearch(q);
+          renderTypeahead(payload.suggestions || [], payload.tracks || []);
         } catch (err) {
           if (err.name !== "AbortError") {
             closeSuggestions();
@@ -1151,88 +1149,17 @@
         }
       }
 
-      function startParallelSearch(q) {
-        if (searchState.query === q) return;
-
-        const ytAbort = new AbortController();
-        const musicAbort = new AbortController();
-
-        searchState = {
-          query: q,
-          ytAbort,
-          musicAbort,
-          results: [],
-          pendingMusic: true,
+      function trackToItem(t) {
+        return {
+          data: t,
+          url: t.webpage_url || t.url,
+          html: renderTrackItemHTML(t),
         };
-
-        fetch("/search?q=" + encodeURIComponent(q) + "&src=yt", {
-          signal: ytAbort.signal,
-        })
-          .then((r) => (r.ok ? r.json() : []))
-          .then((tracks) => mergeSearchResults(q, tracks, false))
-          .catch(() => {});
-
-        fetch("/search?q=" + encodeURIComponent(q) + "&src=music", {
-          signal: musicAbort.signal,
-        })
-          .then((r) => (r.ok ? r.json() : []))
-          .then((tracks) => mergeSearchResults(q, tracks, true))
-          .catch(() => {});
-      }
-
-      function mergeSearchResults(q, tracks, isMusic) {
-        if (searchState.query !== q) return;
-
-        if (isMusic) {
-          searchState.pendingMusic = false;
-        }
-
-        const existingMap = new Map();
-        searchState.results.forEach((r) => existingMap.set(r.url, r));
-
-        tracks.forEach((t) => {
-          const url = t.webpage_url || t.url;
-          const idMatch = url.match(/v=([^&]+)/);
-          const id = idMatch ? idMatch[1] : url;
-
-          let key = url;
-
-          const item = {
-            data: t,
-            isMusic: isMusic || t.is_music,
-            url: url,
-            html: renderTrackItemHTML(t),
-          };
-
-          let found = false;
-          for (let i = 0; i < searchState.results.length; i++) {
-            const ex = searchState.results[i];
-            const exId = ex.url.match(/v=([^&]+)/)?.[1];
-            if (exId && exId === id) {
-              if (isMusic) {
-                searchState.results[i] = item;
-              }
-              found = true;
-              break;
-            }
-          }
-
-          if (!found) {
-            searchState.results.push(item);
-          }
-        });
-
-        if (dropdownMode === "tracks") {
-          renderMergedResults();
-        }
       }
 
       function renderMergedResults() {
         if (!searchState.results.length) {
-          if (!searchState.pendingMusic) {
-            suggestions.innerHTML =
-              '<div class="loading-item">No results found</div>';
-          }
+          suggestions.innerHTML = '<div class="loading-item">No results found</div>';
           return;
         }
 
@@ -1247,7 +1174,13 @@
         if (t.duration > 0) {
           dur = fmtTime(t.duration);
         }
-        const isMusic = t.is_music;
+        const source = t.source || (t.is_music ? "ytmusic" : "youtube");
+        const sourceBadge =
+          source === "subsonic"
+            ? '<span class="badge library-badge"><svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-disc-3"><circle cx="12" cy="12" r="10"/><path d="M12 12h.01"/><path d="M16 12h.01"/><path d="M8 12h.01"/></svg></span>'
+            : source === "ytmusic"
+              ? '<span class="badge music-badge"><svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-music"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg></span>'
+              : "";
 
         return (
           '<div class="suggestion-item" data-url="' +
@@ -1261,9 +1194,7 @@
           title +
           "</div>" +
           '<div class="sug-artist">' +
-          (isMusic
-            ? '<span class="music-badge"><svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-music"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg></span>'
-            : "") +
+          sourceBadge +
           artist +
           "</div>" +
           "</div>" +
@@ -1278,27 +1209,44 @@
         suggestions.innerHTML = '<div class="loading-item">Searching...</div>';
         suggestions.classList.add("active");
 
-        startParallelSearch(q);
+        if (searchState.fullAbort) searchState.fullAbort.abort();
+        const fullAbort = new AbortController();
+        searchState.fullAbort = fullAbort;
 
-        if (searchState.results.length > 0) {
+        try {
+          const res = await fetch("/search?q=" + encodeURIComponent(q) + "&mode=full", {
+            signal: fullAbort.signal,
+          });
+          if (!res.ok) throw new Error();
+          const payload = await res.json();
+          searchState.results = (payload.tracks || []).map(trackToItem);
           renderMergedResults();
+        } catch (err) {
+          if (err.name !== "AbortError") {
+            suggestions.innerHTML = '<div class="loading-item">Search failed</div>';
+          }
         }
       }
 
-      function renderTypeahead(items) {
-        if (!items || !items.length) {
+      function renderTypeahead(items, tracks) {
+        currentSuggestions = items || [];
+        const textHTML = currentSuggestions
+          .map((s) => '<div class="suggest-text">' + escHTML(s) + "</div>")
+          .join("");
+        const trackHTML = (tracks || []).map(renderTrackItemHTML).join("");
+        if (!textHTML && !trackHTML) {
           closeSuggestions();
           return;
         }
         dropdownMode = "suggest";
         currentFocusIndex = -1;
-        suggestions.innerHTML = items
-          .map((s) => '<div class="suggest-text">' + escHTML(s) + "</div>")
-          .join("");
+        suggestions.innerHTML = textHTML + trackHTML;
         suggestions.classList.add("active");
       }
 
       function closeSuggestions() {
+        if (searchState.typeaheadAbort) searchState.typeaheadAbort.abort();
+        if (searchState.fullAbort) searchState.fullAbort.abort();
         suggestions.classList.remove("active");
         suggestions.innerHTML = "";
         dropdownMode = "";
@@ -1306,10 +1254,9 @@
         currentSuggestions = [];
         searchState = {
           query: null,
-          ytAbort: null,
-          musicAbort: null,
+          typeaheadAbort: null,
+          fullAbort: null,
           results: [],
-          pendingMusic: false,
         };
       }
 
