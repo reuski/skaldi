@@ -32,6 +32,7 @@ func TestTrackFromResponse(t *testing.T) {
 				Duration:   256,
 				Uploader:   "Michael Sembello - Topic",
 				WebpageURL: "https://music.youtube.com/watch?v=abc123",
+				Source:     SourceYouTube,
 			},
 		},
 		{
@@ -50,6 +51,7 @@ func TestTrackFromResponse(t *testing.T) {
 				Duration:   300,
 				Uploader:   "Channel Name",
 				WebpageURL: "https://www.youtube.com/watch?v=xyz789",
+				Source:     SourceYouTube,
 			},
 		},
 		{
@@ -64,6 +66,7 @@ func TestTrackFromResponse(t *testing.T) {
 				Title:      "Video Title",
 				Duration:   180,
 				WebpageURL: "https://www.youtube.com/watch?v=def456",
+				Source:     SourceYouTube,
 			},
 		},
 	}
@@ -83,6 +86,9 @@ func TestTrackFromResponse(t *testing.T) {
 			}
 			if got.WebpageURL != tc.expected.WebpageURL {
 				t.Errorf("WebpageURL = %q, want %q", got.WebpageURL, tc.expected.WebpageURL)
+			}
+			if got.Source != tc.expected.Source {
+				t.Errorf("Source = %q, want %q", got.Source, tc.expected.Source)
 			}
 		})
 	}
@@ -114,11 +120,26 @@ func TestTrackStruct(t *testing.T) {
 
 func TestResolverNew(t *testing.T) {
 	cfg := &bootstrap.Config{CacheDir: "/tmp/test"}
-	r := New(cfg)
+	r, err := New(cfg)
+	if err != nil {
+		t.Fatalf("New() failed: %v", err)
+	}
 	if r == nil {
 		t.Fatal("New() returned nil")
 	}
 	if r.cfg != cfg {
 		t.Error("Config not set correctly")
+	}
+}
+
+func TestResolverSearch_InvalidMode(t *testing.T) {
+	r, err := New(&bootstrap.Config{})
+	if err != nil {
+		t.Fatalf("New() failed: %v", err)
+	}
+
+	_, err = r.Search(t.Context(), "test", 5, "invalid")
+	if err == nil {
+		t.Fatal("expected error for invalid mode")
 	}
 }

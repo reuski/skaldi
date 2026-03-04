@@ -8,13 +8,23 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
+	"net/http"
 	"net/url"
 	"os/exec"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/reuski/skaldi/internal/bootstrap"
+)
+
+const (
+	SourceSubsonic = "subsonic"
+	SourceYTMusic  = "ytmusic"
+	SourceYouTube  = "youtube"
 )
 
 type Track struct {
@@ -26,6 +36,12 @@ type Track struct {
 	URL        string  `json:"url,omitempty"`
 	WebpageURL string  `json:"webpage_url,omitempty"`
 	IsMusic    bool    `json:"is_music,omitempty"`
+	Source     string  `json:"source,omitempty"`
+}
+
+type SearchResult struct {
+	Suggestions []string `json:"suggestions"`
+	Tracks      []Track  `json:"tracks"`
 }
 
 type ytDlpResponse struct {
@@ -47,18 +63,260 @@ type ytDlpResponse struct {
 }
 
 type Resolver struct {
-	cfg *bootstrap.Config
+	cfg           *bootstrap.Config
+	subsonic      *SubsonicClient
+	suggestClient *http.Client
 }
 
-func New(cfg *bootstrap.Config) *Resolver {
-	return &Resolver{cfg: cfg}
-}
-
-func (r *Resolver) Search(ctx context.Context, query string, limit int, source string) ([]Track, error) {
-	if source == "music" {
-		return r.searchMusic(ctx, query, limit)
+func New(cfg *bootstrap.Config) (*Resolver, error) {
+	r := &Resolver{
+		cfg:           cfg,
+		suggestClient: &http.Client{Timeout: 2 * time.Second},
 	}
-	return r.searchYouTube(ctx, query, limit)
+
+	if cfg == nil {
+		return r, nil
+	}
+
+	extCfg, err := loadOpenSubsonicConfig(cfg.ConfigPath)
+	if err != nil {
+		return nil, err
+	}
+	if extCfg != nil {
+		r.subsonic = NewSubsonicClient(*extCfg)
+	}
+
+	return r, nil
+}
+
+func (r *Resolver) Suggestions(ctx context.Context, query string) ([]string, error) {
+	u := "https://suggestqueries.google.com/complete/search?client=firefox&ds=yt&oe=utf8&q=" + url.QueryEscape(query)
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := r.suggestClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
+	if err != nil {
+		return nil, err
+	}
+
+	var raw []json.RawMessage
+	if err := json.Unmarshal(body, &raw); err != nil {
+		return nil, err
+	}
+	if len(raw) < 2 {
+		return []string{}, nil
+	}
+
+	var suggestions []string
+	if err := json.Unmarshal(raw[1], &suggestions); err != nil {
+		return nil, err
+	}
+
+	return suggestions, nil
+}
+
+func (r *Resolver) Search(ctx context.Context, query string, limit int, mode string) (SearchResult, error) {
+	if limit <= 0 {
+		limit = 5
+	}
+
+	switch mode {
+	case "typeahead":
+		return r.searchTypeahead(ctx, query, limit), nil
+	case "full":
+		return r.searchFull(ctx, query, limit), nil
+	default:
+		return SearchResult{}, fmt.Errorf("invalid search mode: %s", mode)
+	}
+}
+
+func (r *Resolver) searchTypeahead(ctx context.Context, query string, limit int) SearchResult {
+	result := SearchResult{}
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		tCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+		defer cancel()
+		suggestions, err := r.Suggestions(tCtx, query)
+		if err == nil {
+			mu.Lock()
+			result.Suggestions = suggestions
+			mu.Unlock()
+		}
+	}()
+
+	if r.subsonic != nil {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			tCtx, cancel := context.WithTimeout(ctx, 2500*time.Millisecond)
+			defer cancel()
+			tracks, err := r.subsonic.Search(tCtx, query, limit)
+			if err == nil {
+				mu.Lock()
+				result.Tracks = append(result.Tracks, tracks...)
+				mu.Unlock()
+			}
+		}()
+	}
+
+	wg.Wait()
+	return result
+}
+
+func (r *Resolver) searchFull(ctx context.Context, query string, limit int) SearchResult {
+	type sourceResult struct {
+		source string
+		tracks []Track
+	}
+
+	resultCh := make(chan sourceResult, 3)
+	var wg sync.WaitGroup
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		if r.subsonic == nil {
+			resultCh <- sourceResult{source: SourceSubsonic}
+			return
+		}
+		tCtx, cancel := context.WithTimeout(ctx, 2500*time.Millisecond)
+		defer cancel()
+		tracks, err := r.subsonic.Search(tCtx, query, limit)
+		if err != nil {
+			resultCh <- sourceResult{source: SourceSubsonic}
+			return
+		}
+		resultCh <- sourceResult{source: SourceSubsonic, tracks: tracks}
+	}()
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		tCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		defer cancel()
+		tracks, err := r.searchMusic(tCtx, query, limit)
+		if err != nil {
+			resultCh <- sourceResult{source: SourceYTMusic}
+			return
+		}
+		resultCh <- sourceResult{source: SourceYTMusic, tracks: tracks}
+	}()
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		tCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		defer cancel()
+		tracks, err := r.searchYouTube(tCtx, query, limit)
+		if err != nil {
+			resultCh <- sourceResult{source: SourceYouTube}
+			return
+		}
+		resultCh <- sourceResult{source: SourceYouTube, tracks: tracks}
+	}()
+
+	go func() {
+		wg.Wait()
+		close(resultCh)
+	}()
+
+	bySource := map[string][]Track{}
+	for item := range resultCh {
+		bySource[item.source] = item.tracks
+	}
+
+	return SearchResult{
+		Tracks: mergeTracks(
+			bySource[SourceSubsonic],
+			bySource[SourceYTMusic],
+			bySource[SourceYouTube],
+		),
+	}
+}
+
+func mergeTracks(groups ...[]Track) []Track {
+	merged := make([]Track, 0)
+	seen := make(map[string]struct{})
+
+	for _, group := range groups {
+		for _, track := range group {
+			key := dedupeKey(track)
+			if _, ok := seen[key]; ok {
+				continue
+			}
+			seen[key] = struct{}{}
+			merged = append(merged, track)
+		}
+	}
+
+	return merged
+}
+
+func dedupeKey(track Track) string {
+	if ref, ok := ParseSubsonicURI(firstNonEmpty(track.WebpageURL, track.URL)); ok {
+		return "sub:" + ref.LibraryID + ":" + ref.TrackID
+	}
+
+	videoID := youtubeVideoID(firstNonEmpty(track.WebpageURL, track.URL))
+	if videoID != "" {
+		return "yt:" + videoID
+	}
+
+	artist := normalizeSpace(firstNonEmpty(track.Artist, track.Uploader))
+	title := normalizeSpace(track.Title)
+	if title == "" {
+		title = normalizeSpace(firstNonEmpty(track.WebpageURL, track.URL))
+	}
+	return "meta:" + title + "|" + artist
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, v := range values {
+		if strings.TrimSpace(v) != "" {
+			return v
+		}
+	}
+	return ""
+}
+
+func normalizeSpace(v string) string {
+	return strings.ToLower(strings.Join(strings.Fields(strings.TrimSpace(v)), " "))
+}
+
+func youtubeVideoID(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return ""
+	}
+
+	host := strings.ToLower(u.Host)
+	if strings.Contains(host, "youtu.be") {
+		return strings.TrimPrefix(u.Path, "/")
+	}
+	if strings.Contains(host, "youtube.com") || strings.Contains(host, "music.youtube.com") {
+		if id := u.Query().Get("v"); id != "" {
+			return id
+		}
+		parts := strings.Split(strings.Trim(u.Path, "/"), "/")
+		if len(parts) >= 2 && parts[0] == "shorts" {
+			return parts[1]
+		}
+	}
+
+	return ""
 }
 
 func (r *Resolver) searchYouTube(ctx context.Context, query string, limit int) ([]Track, error) {
@@ -68,10 +326,23 @@ func (r *Resolver) searchYouTube(ctx context.Context, query string, limit int) (
 	cmd := exec.CommandContext(ctx, r.cfg.ShimPath(), args...)
 	out, err := cmd.Output()
 	if err != nil {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
 		return nil, fmt.Errorf("yt-dlp failed: %w", err)
 	}
 
-	return parseLines(out)
+	tracks, err := parseLines(out)
+	if err != nil {
+		if isNoTracksError(err) {
+			return []Track{}, nil
+		}
+		return nil, err
+	}
+	for i := range tracks {
+		tracks[i].Source = SourceYouTube
+	}
+	return tracks, nil
 }
 
 func (r *Resolver) searchMusic(ctx context.Context, query string, limit int) ([]Track, error) {
@@ -85,11 +356,17 @@ func (r *Resolver) searchMusic(ctx context.Context, query string, limit int) ([]
 	cmd := exec.CommandContext(ctx, r.cfg.ShimPath(), args...)
 	out, err := cmd.Output()
 	if err != nil {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
 		return nil, fmt.Errorf("yt-dlp music search failed: %w", err)
 	}
 
 	tracks, err := parseLines(out)
 	if err != nil {
+		if isNoTracksError(err) {
+			return []Track{}, nil
+		}
 		return nil, err
 	}
 
@@ -106,6 +383,7 @@ func (r *Resolver) searchMusic(ctx context.Context, query string, limit int) ([]
 			defer wg.Done()
 
 			track.IsMusic = true
+			track.Source = SourceYTMusic
 			enrichedTracks[idx] = track
 
 			if track.WebpageURL == "" {
@@ -117,27 +395,69 @@ func (r *Resolver) searchMusic(ctx context.Context, query string, limit int) ([]
 
 			fullMeta, err := r.fetchMetadata(fullCtx, track.WebpageURL)
 			if err == nil {
+				fullMeta.IsMusic = true
+				fullMeta.Source = SourceYTMusic
 				enrichedTracks[idx] = fullMeta
-				enrichedTracks[idx].IsMusic = true
 			}
 		}(i, t)
 	}
 	wg.Wait()
+
 	return enrichedTracks, nil
 }
 
-func (r *Resolver) Resolve(ctx context.Context, url string) ([]Track, error) {
-	args := []string{"--dump-json", "--flat-playlist", "--no-download", "--no-warnings", url}
+func (r *Resolver) Resolve(ctx context.Context, rawURL string) ([]Track, error) {
+	if subsonicRef, ok := ParseSubsonicURI(rawURL); ok {
+		return r.resolveSubsonicTrack(ctx, subsonicRef)
+	}
+
+	args := []string{"--dump-json", "--flat-playlist", "--no-download", "--no-warnings", rawURL}
 	cmd := exec.CommandContext(ctx, r.cfg.ShimPath(), args...)
 	out, err := cmd.Output()
 	if err != nil {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
 		return nil, fmt.Errorf("yt-dlp failed: %w", err)
 	}
 	return parseLines(out)
 }
 
-func (r *Resolver) fetchMetadata(ctx context.Context, url string) (Track, error) {
-	args := []string{"--dump-json", "--no-playlist", "--no-download", "--no-warnings", url}
+func (r *Resolver) resolveSubsonicTrack(ctx context.Context, ref SubsonicRef) ([]Track, error) {
+	if r.subsonic == nil {
+		return nil, fmt.Errorf("opensubsonic source is not configured")
+	}
+	if ref.LibraryID != r.subsonic.LibraryID() {
+		return nil, fmt.Errorf("unknown opensubsonic library: %s", ref.LibraryID)
+	}
+
+	streamURL, err := r.subsonic.BuildStreamURL(ref.TrackID)
+	if err != nil {
+		return nil, err
+	}
+
+	track, err := r.subsonic.GetTrack(ctx, ref.TrackID)
+	if err != nil {
+		track = Track{
+			Title:      ref.TrackID,
+			Artist:     "OpenSubsonic",
+			Uploader:   "OpenSubsonic",
+			WebpageURL: BuildSubsonicURI(ref.LibraryID, ref.TrackID),
+			Source:     SourceSubsonic,
+			IsMusic:    true,
+		}
+	}
+
+	track.URL = streamURL
+	track.WebpageURL = BuildSubsonicURI(ref.LibraryID, ref.TrackID)
+	track.Source = SourceSubsonic
+	track.IsMusic = true
+
+	return []Track{track}, nil
+}
+
+func (r *Resolver) fetchMetadata(ctx context.Context, rawURL string) (Track, error) {
+	args := []string{"--dump-json", "--no-playlist", "--no-download", "--no-warnings", rawURL}
 	cmd := exec.CommandContext(ctx, r.cfg.ShimPath(), args...)
 	out, err := cmd.Output()
 	if err != nil {
@@ -180,6 +500,13 @@ func parseLines(data []byte) ([]Track, error) {
 	return tracks, nil
 }
 
+func isNoTracksError(err error) bool {
+	if err == nil {
+		return false
+	}
+	return strings.Contains(err.Error(), "no tracks found") || errors.Is(err, context.DeadlineExceeded)
+}
+
 func trackFromResponse(r ytDlpResponse) Track {
 	artist := r.Artist
 	if artist == "" {
@@ -210,5 +537,6 @@ func trackFromResponse(r ytDlpResponse) Track {
 		Uploader:   r.Uploader,
 		Thumbnail:  thumb,
 		WebpageURL: url,
+		Source:     SourceYouTube,
 	}
 }

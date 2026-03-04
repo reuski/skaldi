@@ -60,10 +60,11 @@ func (s *Server) handleQueue(w http.ResponseWriter, r *http.Request) {
 	}
 
 	count := 0
+	queuedTracks := make([]resolver.Track, 0, len(tracks))
 	for _, track := range tracks {
-		urlToQueue := track.WebpageURL
+		urlToQueue := track.URL
 		if urlToQueue == "" {
-			urlToQueue = track.URL
+			urlToQueue = track.WebpageURL
 		}
 		if urlToQueue == "" {
 			continue
@@ -75,6 +76,11 @@ func (s *Server) handleQueue(w http.ResponseWriter, r *http.Request) {
 			s.logger.Error("Failed to enqueue track", "url", urlToQueue, "error", err)
 			continue
 		}
+		safeTrack := track
+		if _, ok := resolver.ParseSubsonicURI(track.WebpageURL); ok {
+			safeTrack.URL = track.WebpageURL
+		}
+		queuedTracks = append(queuedTracks, safeTrack)
 		count++
 	}
 
@@ -82,19 +88,23 @@ func (s *Server) handleQueue(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(map[string]any{
 		"status": "queued",
 		"count":  count,
-		"tracks": tracks,
+		"tracks": queuedTracks,
 	})
 }
 
 func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 	query := r.URL.Query().Get("q")
-	source := r.URL.Query().Get("src")
+	mode := r.URL.Query().Get("mode")
 	if query == "" {
 		http.Error(w, "Query is required", http.StatusBadRequest)
 		return
 	}
+	if mode != "typeahead" && mode != "full" {
+		http.Error(w, "mode must be typeahead or full", http.StatusBadRequest)
+		return
+	}
 
-	tracks, err := s.resolver.Search(r.Context(), query, 5, source)
+	result, err := s.resolver.Search(r.Context(), query, 5, mode)
 	if err != nil {
 		if r.Context().Err() != nil {
 			return
@@ -105,7 +115,7 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(tracks)
+	_ = json.NewEncoder(w).Encode(result)
 }
 
 func (s *Server) handlePlayback(w http.ResponseWriter, r *http.Request) {

@@ -34,7 +34,11 @@ func main() {
 	}
 
 	mgr := player.NewManager(cfg, logger)
-	res := resolver.New(cfg)
+	res, err := resolver.New(cfg)
+	if err != nil {
+		logger.Error("Failed to initialize resolver", "error", err)
+		os.Exit(1)
+	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

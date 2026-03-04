@@ -30,14 +30,19 @@ func TestLoadConfig(t *testing.T) {
 	if cfg.MpvSocket == "" {
 		t.Error("MpvSocket should not be empty")
 	}
+
+	if cfg.ConfigPath == "" {
+		t.Error("ConfigPath should not be empty")
+	}
 }
 
 func TestConfig_Paths(t *testing.T) {
 	cfg := &Config{
-		CacheDir:  "/tmp/skaldi-test",
-		BinDir:    "/tmp/skaldi-test/bin",
-		UvBinDir:  "/tmp/skaldi-test/uv-bin",
-		MpvSocket: "/tmp/skaldi-test/mpv.sock",
+		CacheDir:   "/tmp/skaldi-test",
+		BinDir:     "/tmp/skaldi-test/bin",
+		UvBinDir:   "/tmp/skaldi-test/uv-bin",
+		MpvSocket:  "/tmp/skaldi-test/mpv.sock",
+		ConfigPath: "/tmp/skaldi-test-config/skaldi/config.json",
 	}
 
 	tests := []struct {
@@ -69,10 +74,11 @@ func TestConfig_Paths(t *testing.T) {
 
 func TestConfig_PathStructure(t *testing.T) {
 	cfg := &Config{
-		CacheDir:  "/home/user/.cache/skaldi",
-		BinDir:    "/home/user/.cache/skaldi/bin",
-		UvBinDir:  "/home/user/.cache/skaldi/uv-bin",
-		MpvSocket: "/home/user/.cache/skaldi/mpv.sock",
+		CacheDir:   "/home/user/.cache/skaldi",
+		BinDir:     "/home/user/.cache/skaldi/bin",
+		UvBinDir:   "/home/user/.cache/skaldi/uv-bin",
+		MpvSocket:  "/home/user/.cache/skaldi/mpv.sock",
+		ConfigPath: "/home/user/.config/skaldi/config.json",
 	}
 
 	if !strings.HasPrefix(cfg.BinDir, cfg.CacheDir) {

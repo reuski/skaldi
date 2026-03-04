@@ -122,6 +122,9 @@ func (s *State) Snapshot() Snapshot {
 			item.Title = track.Title
 			item.Duration = track.Duration
 			item.Metadata = &track
+			if track.WebpageURL != "" {
+				item.Filename = track.WebpageURL
+			}
 		}
 
 		queue[i] = item

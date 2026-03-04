@@ -317,6 +317,26 @@ func TestState_Snapshot_WithPlaylist(t *testing.T) {
 	}
 }
 
+func TestState_Snapshot_UsesMetadataWebpageURLAsFilename(t *testing.T) {
+	s := NewState()
+	streamURL := "https://demo.example.com/rest/stream.view?u=a&t=hash&s=salt&id=track-1"
+	opaqueURL := resolver.BuildSubsonicURI("personal", "track-1")
+
+	s.SetPlaylist([]MpvPlaylistEntry{{Filename: streamURL, ID: 1}})
+	s.StoreMetadata(streamURL, resolver.Track{
+		Title:      "Track 1",
+		WebpageURL: opaqueURL,
+	})
+
+	snap := s.Snapshot()
+	if len(snap.Queue) != 1 {
+		t.Fatalf("queue length = %d, want 1", len(snap.Queue))
+	}
+	if snap.Queue[0].Filename != opaqueURL {
+		t.Fatalf("queue filename = %q, want %q", snap.Queue[0].Filename, opaqueURL)
+	}
+}
+
 func TestState_Snapshot_MetadataLookup(t *testing.T) {
 	s := NewState()
 

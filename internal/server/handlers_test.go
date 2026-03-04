@@ -22,14 +22,18 @@ func setupTestServer(t *testing.T) (*Server, *player.Manager) {
 
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
 	cfg := &bootstrap.Config{
-		CacheDir:  t.TempDir(),
-		BinDir:    t.TempDir(),
-		UvBinDir:  t.TempDir(),
-		MpvSocket: t.TempDir() + "/mpv.sock",
+		CacheDir:   t.TempDir(),
+		BinDir:     t.TempDir(),
+		UvBinDir:   t.TempDir(),
+		MpvSocket:  t.TempDir() + "/mpv.sock",
+		ConfigPath: t.TempDir() + "/config.json",
 	}
 
 	p := player.NewManager(cfg, logger)
-	r := resolver.New(cfg)
+	r, err := resolver.New(cfg)
+	if err != nil {
+		t.Fatalf("resolver.New failed: %v", err)
+	}
 	indexHTML := []byte("<html><body>Test</body></html>")
 
 	s := New(logger, p, r, indexHTML, 0)
@@ -138,6 +142,19 @@ func TestHandlePlayback_InvalidAction(t *testing.T) {
 	rr := httptest.NewRecorder()
 
 	s.handlePlayback(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("Status = %d, want %d", rr.Code, http.StatusBadRequest)
+	}
+}
+
+func TestHandleSearch_InvalidMode(t *testing.T) {
+	s, _ := setupTestServer(t)
+
+	req := httptest.NewRequest(http.MethodGet, "/search?q=test&mode=legacy", nil)
+	rr := httptest.NewRecorder()
+
+	s.handleSearch(rr, req)
 
 	if rr.Code != http.StatusBadRequest {
 		t.Errorf("Status = %d, want %d", rr.Code, http.StatusBadRequest)
@@ -465,9 +482,12 @@ func TestMoveRequest_Unmarshal(t *testing.T) {
 
 func TestNew(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
-	cfg := &bootstrap.Config{CacheDir: t.TempDir()}
+	cfg := &bootstrap.Config{CacheDir: t.TempDir(), ConfigPath: t.TempDir() + "/config.json"}
 	p := player.NewManager(cfg, logger)
-	r := resolver.New(cfg)
+	r, err := resolver.New(cfg)
+	if err != nil {
+		t.Fatalf("resolver.New failed: %v", err)
+	}
 	indexHTML := []byte("<html>Test</html>")
 
 	s := New(logger, p, r, indexHTML, 8080)
