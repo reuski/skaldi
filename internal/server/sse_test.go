@@ -264,6 +264,43 @@ func TestBroadcaster_ConcurrentAccess(t *testing.T) {
 	}
 }
 
+func TestBroadcaster_SkipsUnchangedSnapshots(t *testing.T) {
+	updates := make(chan player.Snapshot, 10)
+	b := NewBroadcaster(updates)
+
+	go b.Run()
+
+	clientCh := b.AddClient(player.Snapshot{})
+	defer b.RemoveClient(clientCh)
+
+	snapshot := player.Snapshot{
+		Version:     1,
+		Status:      player.StatusPlaying,
+		CurrentTime: 42.0,
+		Duration:    180.0,
+	}
+
+	updates <- snapshot
+	select {
+	case <-clientCh:
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("Timeout waiting for first message")
+	}
+
+	updates <- player.Snapshot{
+		Version:     2,
+		Status:      player.StatusPlaying,
+		CurrentTime: 42.0,
+		Duration:    180.0,
+	}
+
+	select {
+	case msg := <-clientCh:
+		t.Fatalf("Expected unchanged snapshot to be skipped, got %q", string(msg))
+	case <-time.After(100 * time.Millisecond):
+	}
+}
+
 func TestSSEMessageFormat(t *testing.T) {
 	updates := make(chan player.Snapshot, 10)
 	b := NewBroadcaster(updates)

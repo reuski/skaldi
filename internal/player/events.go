@@ -144,36 +144,42 @@ func (m *Manager) handlePlaylist(data interface{}) bool {
 }
 
 func (m *Manager) handlePlaylistPos(data interface{}) bool {
+	idx := -1
 	if val, ok := data.(float64); ok {
-		idx := int(val)
-		m.State.SetPlaylistPos(idx)
-		if idx >= 0 {
-			m.State.mu.RLock()
-			if idx < len(m.State.playlist) {
-				entry := m.State.playlist[idx]
-				histEntry := history.Entry{
-					Timestamp: time.Now(),
-				}
-				if track, ok := m.State.metadata[entry.Filename]; ok {
-					histEntry.Title = track.Title
-					histEntry.Artist = track.Artist
-					histEntry.SourceURL = track.WebpageURL
-					if histEntry.SourceURL == "" {
-						histEntry.SourceURL = track.URL
-					}
-				} else {
-					if histEntry.Title == "" {
-						histEntry.Title = entry.Filename
-					}
-				}
-				if histEntry.Title != "" || histEntry.SourceURL != "" {
-					m.history.Log(histEntry)
-				}
-			}
-			m.State.mu.RUnlock()
-		}
+		idx = int(val)
+	}
+
+	if !m.State.SetPlaylistPos(idx) {
+		return false
+	}
+
+	if idx < 0 {
 		return true
 	}
-	m.State.SetPlaylistPos(-1)
+
+	m.State.mu.RLock()
+	item := m.State.currentItem
+	m.State.mu.RUnlock()
+	if item == nil {
+		return true
+	}
+
+	histEntry := history.Entry{
+		Timestamp: time.Now(),
+		Title:     item.Title,
+	}
+	if item.Metadata != nil {
+		histEntry.Artist = item.Metadata.Artist
+		histEntry.SourceURL = item.Metadata.WebpageURL
+		if histEntry.SourceURL == "" {
+			histEntry.SourceURL = item.Metadata.URL
+		}
+	}
+	if histEntry.Title == "" {
+		histEntry.Title = item.Filename
+	}
+	if histEntry.Title != "" || histEntry.SourceURL != "" {
+		m.history.Log(histEntry)
+	}
 	return true
 }

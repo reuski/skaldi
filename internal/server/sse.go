@@ -37,6 +37,10 @@ func (b *Broadcaster) Run() {
 		b.lastSnap = snap
 
 		for c := range b.clients {
+			if player.SnapshotsEqual(c.lastSnap, snap) {
+				continue
+			}
+
 			var payload []byte
 			var err error
 

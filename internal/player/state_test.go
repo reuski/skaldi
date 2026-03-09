@@ -300,8 +300,8 @@ func TestState_Snapshot_WithPlaylist(t *testing.T) {
 		t.Errorf("NowPlaying.Title = %q, want %q", snap.NowPlaying.Title, "Track 2")
 	}
 
-	if len(snap.History) != 1 {
-		t.Errorf("History length = %d, want 1", len(snap.History))
+	if len(snap.History) != 0 {
+		t.Errorf("History length = %d, want 0", len(snap.History))
 	}
 
 	if len(snap.Upcoming) != 1 {
@@ -392,5 +392,128 @@ func TestComputeDelta_MetadataChange(t *testing.T) {
 	delta := ComputeDelta(prev, curr)
 	if delta != nil {
 		t.Error("ComputeDelta should return nil (full snapshot) when queue content changes")
+	}
+}
+
+func TestState_Snapshot_IdleShowsLastPlayedInsteadOfUpcoming(t *testing.T) {
+	s := NewState()
+	s.SetPlaylist([]MpvPlaylistEntry{
+		{Filename: "track1.mp3", ID: 1},
+		{Filename: "track2.mp3", ID: 2},
+		{Filename: "track3.mp3", ID: 3},
+		{Filename: "track4.mp3", ID: 4},
+	})
+
+	for i := 1; i <= 4; i++ {
+		filename := "track" + string(rune('0'+i)) + ".mp3"
+		title := "Track " + string(rune('0'+i))
+		s.StoreMetadata(filename, resolver.Track{Title: title})
+	}
+
+	s.SetPlaylistPos(0)
+	s.SetPlaylistPos(1)
+	s.SetPlaylistPos(2)
+	s.SetPlaylistPos(3)
+	s.SetIdle(true)
+	s.SetPlaylistPos(-1)
+
+	snap := s.Snapshot()
+	if snap.CurrentIdx != -1 {
+		t.Fatalf("CurrentIdx = %d, want -1", snap.CurrentIdx)
+	}
+	if snap.NowPlaying != nil {
+		t.Fatal("NowPlaying should be nil when idle")
+	}
+	if len(snap.Upcoming) != 0 {
+		t.Fatalf("Upcoming length = %d, want 0", len(snap.Upcoming))
+	}
+	if len(snap.History) != 3 {
+		t.Fatalf("History length = %d, want 3", len(snap.History))
+	}
+
+	want := []string{"Track 2", "Track 3", "Track 4"}
+	for i, title := range want {
+		if snap.History[i].Title != title {
+			t.Fatalf("History[%d].Title = %q, want %q", i, snap.History[i].Title, title)
+		}
+	}
+}
+
+func TestState_SetPlaylistPos_DoesNotDuplicateHistoryOnSamePosition(t *testing.T) {
+	s := NewState()
+	s.SetPlaylist([]MpvPlaylistEntry{
+		{Filename: "track1.mp3", ID: 1},
+		{Filename: "track2.mp3", ID: 2},
+	})
+	s.StoreMetadata("track1.mp3", resolver.Track{Title: "Track 1"})
+	s.StoreMetadata("track2.mp3", resolver.Track{Title: "Track 2"})
+
+	s.SetPlaylistPos(0)
+	s.SetPlaylistPos(0)
+	s.SetPlaylistPos(1)
+	s.SetPlaylistPos(1)
+	s.SetIdle(true)
+	s.SetPlaylistPos(-1)
+
+	snap := s.Snapshot()
+	if len(snap.History) != 2 {
+		t.Fatalf("History length = %d, want 2", len(snap.History))
+	}
+	if snap.History[0].Title != "Track 1" {
+		t.Fatalf("History[0].Title = %q, want %q", snap.History[0].Title, "Track 1")
+	}
+	if snap.History[1].Title != "Track 2" {
+		t.Fatalf("History[1].Title = %q, want %q", snap.History[1].Title, "Track 2")
+	}
+}
+
+func TestComputeDelta_CurrentIndexChangeReturnsFullSnapshot(t *testing.T) {
+	prev := Snapshot{
+		Version:    1,
+		Status:     StatusPlaying,
+		CurrentIdx: 0,
+		Queue:      []QueueItem{{ID: 1, Index: 0, Filename: "track1.mp3"}, {ID: 2, Index: 1, Filename: "track2.mp3"}},
+		NowPlaying: &QueueItem{ID: 1, Index: 0, Filename: "track1.mp3"},
+		Upcoming:   []QueueItem{{ID: 2, Index: 1, Filename: "track2.mp3"}},
+	}
+	curr := Snapshot{
+		Version:    2,
+		Status:     StatusPlaying,
+		CurrentIdx: 1,
+		Queue:      []QueueItem{{ID: 1, Index: 0, Filename: "track1.mp3"}, {ID: 2, Index: 1, Filename: "track2.mp3"}},
+		History:    []QueueItem{{ID: 1, Index: 0, Filename: "track1.mp3"}},
+		NowPlaying: &QueueItem{ID: 2, Index: 1, Filename: "track2.mp3"},
+	}
+
+	if delta := ComputeDelta(prev, curr); delta != nil {
+		t.Fatal("ComputeDelta should return nil when current item changes")
+	}
+}
+
+func TestState_Snapshot_ReindexesRecentHistory(t *testing.T) {
+	s := NewState()
+	s.SetPlaylist([]MpvPlaylistEntry{
+		{Filename: "track1.mp3", ID: 1},
+		{Filename: "track2.mp3", ID: 2},
+		{Filename: "track3.mp3", ID: 3},
+	})
+	s.StoreMetadata("track1.mp3", resolver.Track{Title: "Track 1"})
+	s.StoreMetadata("track2.mp3", resolver.Track{Title: "Track 2"})
+	s.StoreMetadata("track3.mp3", resolver.Track{Title: "Track 3"})
+
+	s.SetPlaylistPos(0)
+	s.SetPlaylistPos(1)
+	s.SetPlaylist([]MpvPlaylistEntry{
+		{Filename: "track2.mp3", ID: 2},
+		{Filename: "track3.mp3", ID: 3},
+		{Filename: "track1.mp3", ID: 1},
+	})
+
+	snap := s.Snapshot()
+	if len(snap.History) != 1 {
+		t.Fatalf("History length = %d, want 1", len(snap.History))
+	}
+	if snap.History[0].Index != 2 {
+		t.Fatalf("History[0].Index = %d, want 2", snap.History[0].Index)
 	}
 }
