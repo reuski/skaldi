@@ -19,6 +19,8 @@ sudo apt install mpv ffmpeg avahi-utils
 
 ## Build & Run
 
+Requires Go 1.26 or later.
+
 ```bash
 go build -o skaldi ./cmd/skaldi
 ./skaldi
