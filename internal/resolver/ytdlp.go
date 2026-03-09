@@ -124,7 +124,7 @@ func (r *Resolver) Suggestions(ctx context.Context, query string) ([]string, err
 	return suggestions, nil
 }
 
-func (r *Resolver) Search(ctx context.Context, query string, limit int, mode string) (SearchResult, error) {
+func (r *Resolver) Search(ctx context.Context, query string, limit int, mode string) (<-chan SearchResult, error) {
 	if limit <= 0 {
 		limit = 5
 	}
@@ -135,14 +135,13 @@ func (r *Resolver) Search(ctx context.Context, query string, limit int, mode str
 	case "full":
 		return r.searchFull(ctx, query, limit), nil
 	default:
-		return SearchResult{}, fmt.Errorf("invalid search mode: %s", mode)
+		return nil, fmt.Errorf("invalid search mode: %s", mode)
 	}
 }
 
-func (r *Resolver) searchTypeahead(ctx context.Context, query string, limit int) SearchResult {
-	result := SearchResult{}
+func (r *Resolver) searchTypeahead(ctx context.Context, query string, limit int) <-chan SearchResult {
+	resultCh := make(chan SearchResult, 2)
 	var wg sync.WaitGroup
-	var mu sync.Mutex
 
 	wg.Add(1)
 	go func() {
@@ -151,9 +150,7 @@ func (r *Resolver) searchTypeahead(ctx context.Context, query string, limit int)
 		defer cancel()
 		suggestions, err := r.Suggestions(tCtx, query)
 		if err == nil {
-			mu.Lock()
-			result.Suggestions = suggestions
-			mu.Unlock()
+			resultCh <- SearchResult{Suggestions: suggestions}
 		}
 	}()
 
@@ -165,42 +162,35 @@ func (r *Resolver) searchTypeahead(ctx context.Context, query string, limit int)
 			defer cancel()
 			tracks, err := r.subsonic.Search(tCtx, query, limit)
 			if err == nil {
-				mu.Lock()
-				result.Tracks = append(result.Tracks, tracks...)
-				mu.Unlock()
+				resultCh <- SearchResult{Tracks: tracks}
 			}
 		}()
 	}
 
-	wg.Wait()
-	return result
+	go func() {
+		wg.Wait()
+		close(resultCh)
+	}()
+
+	return resultCh
 }
 
-func (r *Resolver) searchFull(ctx context.Context, query string, limit int) SearchResult {
-	type sourceResult struct {
-		source string
-		tracks []Track
-	}
-
-	resultCh := make(chan sourceResult, 3)
+func (r *Resolver) searchFull(ctx context.Context, query string, limit int) <-chan SearchResult {
+	resultCh := make(chan SearchResult, 3)
 	var wg sync.WaitGroup
 
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		if r.subsonic == nil {
-			resultCh <- sourceResult{source: SourceSubsonic}
-			return
-		}
-		tCtx, cancel := context.WithTimeout(ctx, 2500*time.Millisecond)
-		defer cancel()
-		tracks, err := r.subsonic.Search(tCtx, query, limit)
-		if err != nil {
-			resultCh <- sourceResult{source: SourceSubsonic}
-			return
-		}
-		resultCh <- sourceResult{source: SourceSubsonic, tracks: tracks}
-	}()
+	if r.subsonic != nil {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			tCtx, cancel := context.WithTimeout(ctx, 2500*time.Millisecond)
+			defer cancel()
+			tracks, err := r.subsonic.Search(tCtx, query, limit)
+			if err == nil && len(tracks) > 0 {
+				resultCh <- SearchResult{Tracks: tracks}
+			}
+		}()
+	}
 
 	wg.Add(1)
 	go func() {
@@ -208,11 +198,9 @@ func (r *Resolver) searchFull(ctx context.Context, query string, limit int) Sear
 		tCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 		defer cancel()
 		tracks, err := r.searchMusic(tCtx, query, limit)
-		if err != nil {
-			resultCh <- sourceResult{source: SourceYTMusic}
-			return
+		if err == nil && len(tracks) > 0 {
+			resultCh <- SearchResult{Tracks: tracks}
 		}
-		resultCh <- sourceResult{source: SourceYTMusic, tracks: tracks}
 	}()
 
 	wg.Add(1)
@@ -221,11 +209,9 @@ func (r *Resolver) searchFull(ctx context.Context, query string, limit int) Sear
 		tCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 		defer cancel()
 		tracks, err := r.searchYouTube(tCtx, query, limit)
-		if err != nil {
-			resultCh <- sourceResult{source: SourceYouTube}
-			return
+		if err == nil && len(tracks) > 0 {
+			resultCh <- SearchResult{Tracks: tracks}
 		}
-		resultCh <- sourceResult{source: SourceYouTube, tracks: tracks}
 	}()
 
 	go func() {
@@ -233,90 +219,7 @@ func (r *Resolver) searchFull(ctx context.Context, query string, limit int) Sear
 		close(resultCh)
 	}()
 
-	bySource := map[string][]Track{}
-	for item := range resultCh {
-		bySource[item.source] = item.tracks
-	}
-
-	return SearchResult{
-		Tracks: mergeTracks(
-			bySource[SourceSubsonic],
-			bySource[SourceYTMusic],
-			bySource[SourceYouTube],
-		),
-	}
-}
-
-func mergeTracks(groups ...[]Track) []Track {
-	merged := make([]Track, 0)
-	seen := make(map[string]struct{})
-
-	for _, group := range groups {
-		for _, track := range group {
-			key := dedupeKey(track)
-			if _, ok := seen[key]; ok {
-				continue
-			}
-			seen[key] = struct{}{}
-			merged = append(merged, track)
-		}
-	}
-
-	return merged
-}
-
-func dedupeKey(track Track) string {
-	if ref, ok := ParseSubsonicURI(firstNonEmpty(track.WebpageURL, track.URL)); ok {
-		return "sub:" + ref.LibraryID + ":" + ref.TrackID
-	}
-
-	videoID := youtubeVideoID(firstNonEmpty(track.WebpageURL, track.URL))
-	if videoID != "" {
-		return "yt:" + videoID
-	}
-
-	artist := normalizeSpace(firstNonEmpty(track.Artist, track.Uploader))
-	title := normalizeSpace(track.Title)
-	if title == "" {
-		title = normalizeSpace(firstNonEmpty(track.WebpageURL, track.URL))
-	}
-	return "meta:" + title + "|" + artist
-}
-
-func firstNonEmpty(values ...string) string {
-	for _, v := range values {
-		if strings.TrimSpace(v) != "" {
-			return v
-		}
-	}
-	return ""
-}
-
-func normalizeSpace(v string) string {
-	return strings.ToLower(strings.Join(strings.Fields(strings.TrimSpace(v)), " "))
-}
-
-func youtubeVideoID(raw string) string {
-	u, err := url.Parse(raw)
-	if err != nil {
-		return ""
-	}
-
-	host := strings.ToLower(u.Host)
-	if strings.Contains(host, "youtu.be") {
-		return strings.TrimPrefix(u.Path, "/")
-	}
-	if strings.Contains(host, "youtube.com") || strings.Contains(host, "music.youtube.com") {
-		if id := u.Query().Get("v"); id != "" {
-			return id
-		}
-		parts := strings.Split(strings.Trim(u.Path, "/"), "/")
-		if len(parts) >= 2 && parts[0] == "shorts" {
-			return parts[1]
-		}
-	}
-
-	return ""
+	return resultCh
 }
 
 func (r *Resolver) searchYouTube(ctx context.Context, query string, limit int) ([]Track, error) {

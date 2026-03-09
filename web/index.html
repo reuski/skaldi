@@ -1143,6 +1143,36 @@
         suggestTimeout = setTimeout(() => fetchTypeahead(q), 150);
       });
 
+      function getTrackKey(t) {
+        if (t.webpage_url) return t.webpage_url;
+        if (t.url) return t.url;
+        return (t.title + "|" + (t.artist || t.uploader)).toLowerCase();
+      }
+
+      async function readNDJSON(response, onPayload) {
+        const reader = response.body.pipeThrough(new TextDecoderStream()).getReader();
+        let buffer = "";
+        try {
+          while (true) {
+            const { done, value } = await reader.read();
+            if (value) buffer += value;
+            const lines = buffer.split("\n");
+            buffer = lines.pop();
+            for (const line of lines) {
+              const t = line.trim();
+              if (t) onPayload(JSON.parse(t));
+            }
+            if (done) {
+              const t = buffer.trim();
+              if (t) onPayload(JSON.parse(t));
+              break;
+            }
+          }
+        } finally {
+          reader.releaseLock();
+        }
+      }
+
       async function fetchTypeahead(q) {
         const abort = new AbortController();
         searchState.query = q;
@@ -1150,15 +1180,29 @@
         try {
           const res = await fetch(
             "/search?q=" + encodeURIComponent(q) + "&mode=typeahead",
-            {
-              signal: abort.signal,
-            },
+            { signal: abort.signal }
           );
           if (!res.ok) throw new Error();
-          const payload = await res.json();
-          if (searchState.query !== q) return;
+          
+          let allSuggestions = [];
+          let allTracks = [];
+          const seen = new Set();
 
-          renderTypeahead(payload.suggestions || [], payload.tracks || []);
+          await readNDJSON(res, (payload) => {
+            if (payload.suggestions) allSuggestions.push(...payload.suggestions);
+            if (payload.tracks) {
+              for (const t of payload.tracks) {
+                const key = getTrackKey(t);
+                if (!seen.has(key)) {
+                  seen.add(key);
+                  allTracks.push(t);
+                }
+              }
+            }
+            if (searchState.query === q) {
+              renderTypeahead(allSuggestions, allTracks);
+            }
+          });
         } catch (err) {
           if (err.name !== "AbortError") {
             closeSuggestions();
@@ -1270,14 +1314,34 @@
         try {
           const res = await fetch(
             "/search?q=" + encodeURIComponent(q) + "&mode=full",
-            {
-              signal: fullAbort.signal,
-            },
+            { signal: fullAbort.signal }
           );
           if (!res.ok) throw new Error();
-          const payload = await res.json();
-          searchState.results = (payload.tracks || []).map(trackToItem);
-          renderMergedResults();
+          
+          searchState.results = [];
+          let hasRendered = false;
+          const seen = new Set();
+
+          await readNDJSON(res, (payload) => {
+            const tracks = payload.tracks || [];
+            let added = false;
+            for (const t of tracks) {
+              const key = getTrackKey(t);
+              if (!seen.has(key)) {
+                seen.add(key);
+                searchState.results.push(trackToItem(t));
+                added = true;
+              }
+            }
+            if (added) {
+              renderMergedResults();
+              hasRendered = true;
+            }
+          });
+          
+          if (!hasRendered && searchState.results.length === 0) {
+            renderMergedResults();
+          }
         } catch (err) {
           if (err.name !== "AbortError") {
             suggestions.innerHTML =

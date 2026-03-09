@@ -104,7 +104,7 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result, err := s.resolver.Search(r.Context(), query, 5, mode)
+	resultCh, err := s.resolver.Search(r.Context(), query, 5, mode)
 	if err != nil {
 		if r.Context().Err() != nil {
 			return
@@ -114,8 +114,20 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(result)
+	w.Header().Set("Content-Type", "application/x-ndjson")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.WriteHeader(http.StatusOK)
+
+	rc := http.NewResponseController(w)
+	encoder := json.NewEncoder(w)
+
+	for result := range resultCh {
+		if err := encoder.Encode(result); err != nil {
+			break
+		}
+		_ = rc.Flush()
+	}
 }
 
 func (s *Server) handlePlayback(w http.ResponseWriter, r *http.Request) {
