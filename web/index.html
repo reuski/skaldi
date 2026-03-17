@@ -938,9 +938,16 @@
             id="urlInput"
             placeholder="Paste URL or search..."
             autocomplete="off"
+            spellcheck="false"
+            inputmode="search"
+            enterkeyhint="search"
+            aria-label="Search or paste URL"
+            aria-autocomplete="list"
+            aria-controls="suggestions"
+            aria-expanded="false"
             autofocus
           />
-          <div class="suggestions" id="suggestions"></div>
+          <div class="suggestions" id="suggestions" role="listbox"></div>
         </div>
         <input type="file" id="fileInput" multiple style="display: none" />
       </form>
@@ -1113,14 +1120,21 @@
 
       let suggestTimeout;
       let searchState = {
-        query: null,
         typeaheadAbort: null,
         fullAbort: null,
         results: [],
       };
-      let currentSuggestions = [];
+      const typeaheadCache = new Map();
+      const fullSearchCache = new Map();
+      const SEARCH_CACHE_LIMIT = 48;
+      const MAX_TYPEAHEAD_SUGGESTIONS = 6;
+      const MAX_TYPEAHEAD_TRACKS = 4;
       let currentFocusIndex = -1;
       let dropdownMode = "";
+      let typeaheadSeq = 0;
+      let fullSearchSeq = 0;
+      let pendingTypeaheadRender = null;
+      let typeaheadRenderFrame = 0;
 
       urlInput.addEventListener("input", (e) => {
         const q = e.target.value.trim();
@@ -1129,7 +1143,6 @@
         if (searchState.fullAbort) searchState.fullAbort.abort();
 
         searchState = {
-          query: null,
           typeaheadAbort: null,
           fullAbort: null,
           results: [],
@@ -1140,13 +1153,103 @@
           return;
         }
 
-        suggestTimeout = setTimeout(() => fetchTypeahead(q), 150);
+        const cached = readCache(typeaheadCache, normalizeSearchQuery(q));
+        if (cached) {
+          scheduleTypeaheadRender(cached.suggestions, cached.tracks);
+        }
+
+        suggestTimeout = setTimeout(() => fetchTypeahead(q), 110);
       });
+
+      function normalizeSearchQuery(q) {
+        return q.trim().replace(/\s+/g, " ").toLowerCase();
+      }
+
+      function readCache(cache, key) {
+        if (!key || !cache.has(key)) return null;
+        const value = cache.get(key);
+        cache.delete(key);
+        cache.set(key, value);
+        return value;
+      }
+
+      function writeCache(cache, key, value) {
+        if (!key) return;
+        if (cache.has(key)) cache.delete(key);
+        cache.set(key, value);
+        while (cache.size > SEARCH_CACHE_LIMIT) {
+          cache.delete(cache.keys().next().value);
+        }
+      }
+
+      function dedupeTextSuggestions(items) {
+        const seen = new Set();
+        const out = [];
+        for (const item of items || []) {
+          const text = String(item || "").trim();
+          if (!text) continue;
+          const key = text.toLowerCase();
+          if (seen.has(key)) continue;
+          seen.add(key);
+          out.push(text);
+          if (out.length >= MAX_TYPEAHEAD_SUGGESTIONS) break;
+        }
+        return out;
+      }
 
       function getTrackKey(t) {
         if (t.webpage_url) return t.webpage_url;
         if (t.url) return t.url;
         return (t.title + "|" + (t.artist || t.uploader)).toLowerCase();
+      }
+
+      function dedupeTracks(tracks, limit) {
+        const seen = new Set();
+        const out = [];
+        for (const track of tracks || []) {
+          const key = getTrackKey(track);
+          if (!key || seen.has(key)) continue;
+          seen.add(key);
+          out.push(track);
+          if (limit && out.length >= limit) break;
+        }
+        return out;
+      }
+
+      function setSuggestionsOpen(isOpen) {
+        suggestions.classList.toggle("active", isOpen);
+        urlInput.setAttribute("aria-expanded", isOpen ? "true" : "false");
+        if (!isOpen) {
+          urlInput.removeAttribute("aria-activedescendant");
+        }
+      }
+
+      function syncSuggestionAccessibility() {
+        const items = suggestions.querySelectorAll(
+          ".suggest-text, .suggestion-item",
+        );
+        items.forEach((item, idx) => {
+          item.id = "search-option-" + idx;
+          item.setAttribute("role", "option");
+          item.setAttribute(
+            "aria-selected",
+            idx === currentFocusIndex ? "true" : "false",
+          );
+        });
+        if (currentFocusIndex >= 0 && currentFocusIndex < items.length) {
+          urlInput.setAttribute(
+            "aria-activedescendant",
+            items[currentFocusIndex].id,
+          );
+        } else {
+          urlInput.removeAttribute("aria-activedescendant");
+        }
+      }
+
+      function showSuggestionStatus(text) {
+        suggestions.innerHTML = '<div class="loading-item">' + text + "</div>";
+        setSuggestionsOpen(true);
+        syncSuggestionAccessibility();
       }
 
       async function readNDJSON(response, onPayload) {
@@ -1174,38 +1277,64 @@
       }
 
       async function fetchTypeahead(q) {
+        const cacheKey = normalizeSearchQuery(q);
+        const seq = ++typeaheadSeq;
         const abort = new AbortController();
-        searchState.query = q;
         searchState.typeaheadAbort = abort;
+        const cached = readCache(typeaheadCache, cacheKey);
+        if (cached) {
+          scheduleTypeaheadRender(cached.suggestions, cached.tracks);
+        }
         try {
           const res = await fetch(
             "/search?q=" + encodeURIComponent(q) + "&mode=typeahead",
             { signal: abort.signal }
           );
           if (!res.ok) throw new Error();
-          
+
           let allSuggestions = [];
           let allTracks = [];
-          const seen = new Set();
+          let latestSuggestions = cached ? cached.suggestions : [];
+          let latestTracks = cached ? cached.tracks : [];
 
           await readNDJSON(res, (payload) => {
+            if (seq !== typeaheadSeq || searchState.typeaheadAbort !== abort) {
+              return;
+            }
             if (payload.suggestions) allSuggestions.push(...payload.suggestions);
             if (payload.tracks) {
-              for (const t of payload.tracks) {
-                const key = getTrackKey(t);
-                if (!seen.has(key)) {
-                  seen.add(key);
-                  allTracks.push(t);
-                }
-              }
+              allTracks.push(...payload.tracks);
             }
-            if (searchState.query === q) {
-              renderTypeahead(allSuggestions, allTracks);
-            }
+            const suggestionsList = dedupeTextSuggestions(allSuggestions);
+            const trackList = dedupeTracks(allTracks, MAX_TYPEAHEAD_TRACKS);
+            latestSuggestions = suggestionsList;
+            latestTracks = trackList;
+            writeCache(typeaheadCache, cacheKey, {
+              suggestions: suggestionsList,
+              tracks: trackList,
+            });
+            scheduleTypeaheadRender(suggestionsList, trackList);
           });
-        } catch (err) {
-          if (err.name !== "AbortError") {
+          if (
+            seq === typeaheadSeq &&
+            searchState.typeaheadAbort === abort &&
+            latestSuggestions.length === 0 &&
+            latestTracks.length === 0
+          ) {
             closeSuggestions();
+          }
+        } catch (err) {
+          if (
+            err.name !== "AbortError" &&
+            seq === typeaheadSeq &&
+            searchState.typeaheadAbort === abort &&
+            !cached
+          ) {
+            closeSuggestions();
+          }
+        } finally {
+          if (searchState.typeaheadAbort === abort) {
+            searchState.typeaheadAbort = null;
           }
         }
       }
@@ -1220,12 +1349,13 @@
 
       function renderMergedResults() {
         if (!searchState.results.length) {
-          suggestions.innerHTML =
-            '<div class="loading-item">No results found</div>';
+          showSuggestionStatus("No results found");
           return;
         }
 
         suggestions.innerHTML = searchState.results.map((r) => r.html).join("");
+        setSuggestionsOpen(true);
+        syncSuggestionAccessibility();
       }
 
       function renderTrackItemHTML(t) {
@@ -1302,14 +1432,21 @@
       }
 
       async function searchTracks(q) {
+        const cacheKey = normalizeSearchQuery(q);
+        const seq = ++fullSearchSeq;
         dropdownMode = "tracks";
         currentFocusIndex = -1;
-        suggestions.innerHTML = '<div class="loading-item">Searching...</div>';
-        suggestions.classList.add("active");
-
         if (searchState.fullAbort) searchState.fullAbort.abort();
         const fullAbort = new AbortController();
         searchState.fullAbort = fullAbort;
+        const cached = readCache(fullSearchCache, cacheKey);
+
+        if (cached && cached.length) {
+          searchState.results = cached.map(trackToItem);
+          renderMergedResults();
+        } else {
+          showSuggestionStatus("Searching...");
+        }
 
         try {
           const res = await fetch(
@@ -1317,45 +1454,62 @@
             { signal: fullAbort.signal }
           );
           if (!res.ok) throw new Error();
-          
+
           searchState.results = [];
           let hasRendered = false;
-          const seen = new Set();
+          let allTracks = [];
 
           await readNDJSON(res, (payload) => {
-            const tracks = payload.tracks || [];
-            let added = false;
-            for (const t of tracks) {
-              const key = getTrackKey(t);
-              if (!seen.has(key)) {
-                seen.add(key);
-                searchState.results.push(trackToItem(t));
-                added = true;
-              }
+            if (seq !== fullSearchSeq || searchState.fullAbort !== fullAbort) {
+              return;
             }
+            allTracks.push(...(payload.tracks || []));
+            const deduped = dedupeTracks(allTracks);
+            searchState.results = deduped.map(trackToItem);
+            const added = deduped.length > 0;
             if (added) {
+              writeCache(fullSearchCache, cacheKey, deduped);
               renderMergedResults();
               hasRendered = true;
             }
           });
-          
+
           if (!hasRendered && searchState.results.length === 0) {
             renderMergedResults();
           }
         } catch (err) {
-          if (err.name !== "AbortError") {
-            suggestions.innerHTML =
-              '<div class="loading-item">Search failed</div>';
+          if (
+            err.name !== "AbortError" &&
+            seq === fullSearchSeq &&
+            searchState.fullAbort === fullAbort &&
+            (!cached || !cached.length)
+          ) {
+            showSuggestionStatus("Search failed");
+          }
+        } finally {
+          if (searchState.fullAbort === fullAbort) {
+            searchState.fullAbort = null;
           }
         }
       }
 
+      function scheduleTypeaheadRender(items, tracks) {
+        pendingTypeaheadRender = { items: items || [], tracks: tracks || [] };
+        if (typeaheadRenderFrame) return;
+        typeaheadRenderFrame = requestAnimationFrame(() => {
+          const next = pendingTypeaheadRender;
+          pendingTypeaheadRender = null;
+          typeaheadRenderFrame = 0;
+          if (next) renderTypeahead(next.items, next.tracks);
+        });
+      }
+
       function renderTypeahead(items, tracks) {
-        currentSuggestions = items || [];
-        const textHTML = currentSuggestions
+        const suggestionItems = items || [];
+        const textHTML = suggestionItems
           .map((s) => '<div class="suggest-text">' + escHTML(s) + "</div>")
           .join("");
-        const trackHTML = (tracks || [])
+        const trackHTML = dedupeTracks(tracks, MAX_TYPEAHEAD_TRACKS)
           .map(renderTypeaheadTrackItemHTML)
           .join("");
         if (!textHTML && !trackHTML) {
@@ -1365,19 +1519,21 @@
         dropdownMode = "suggest";
         currentFocusIndex = -1;
         suggestions.innerHTML = textHTML + trackHTML;
-        suggestions.classList.add("active");
+        setSuggestionsOpen(true);
+        syncSuggestionAccessibility();
       }
 
       function closeSuggestions() {
         if (searchState.typeaheadAbort) searchState.typeaheadAbort.abort();
         if (searchState.fullAbort) searchState.fullAbort.abort();
-        suggestions.classList.remove("active");
+        if (typeaheadRenderFrame) cancelAnimationFrame(typeaheadRenderFrame);
+        typeaheadRenderFrame = 0;
+        pendingTypeaheadRender = null;
+        setSuggestionsOpen(false);
         suggestions.innerHTML = "";
         dropdownMode = "";
         currentFocusIndex = -1;
-        currentSuggestions = [];
         searchState = {
-          query: null,
           typeaheadAbort: null,
           fullAbort: null,
           results: [],
@@ -1395,7 +1551,6 @@
             e.preventDefault();
             currentFocusIndex = (currentFocusIndex + 1) % items.length;
             updateSelection(items);
-            updatePrefetchTarget();
           }
         } else if (e.key === "ArrowUp" || (e.key === "Tab" && e.shiftKey)) {
           if (items.length && isActive) {
@@ -1407,7 +1562,6 @@
                 (currentFocusIndex - 1 + items.length) % items.length;
             }
             updateSelection(items);
-            updatePrefetchTarget();
           }
         } else if (e.key === "Enter") {
           if (isActive && currentFocusIndex > -1 && items.length) {
@@ -1440,10 +1594,7 @@
             item.classList.remove("active");
           }
         });
-      }
-
-      function updatePrefetchTarget() {
-        if (dropdownMode !== "suggest" || !currentSuggestions.length) return;
+        syncSuggestionAccessibility();
       }
 
       suggestions.addEventListener("click", (e) => {

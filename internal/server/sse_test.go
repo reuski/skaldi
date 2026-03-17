@@ -16,13 +16,9 @@ func TestNewBroadcaster(t *testing.T) {
 
 	if b == nil {
 		t.Fatal("NewBroadcaster() returned nil")
-	}
-
-	if b.clients == nil {
+	} else if b.clients == nil {
 		t.Error("clients map not initialized")
-	}
-
-	if b.updates != updates {
+	} else if b.updates != updates {
 		t.Error("updates channel not set correctly")
 	}
 }

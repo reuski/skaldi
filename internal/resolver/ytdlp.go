@@ -66,6 +66,7 @@ type Resolver struct {
 	cfg           *bootstrap.Config
 	subsonic      *SubsonicClient
 	suggestClient *http.Client
+	warnings      []error
 }
 
 func New(cfg *bootstrap.Config) (*Resolver, error) {
@@ -80,13 +81,23 @@ func New(cfg *bootstrap.Config) (*Resolver, error) {
 
 	extCfg, err := loadOpenSubsonicConfig(cfg.ConfigPath)
 	if err != nil {
-		return nil, err
+		r.warnings = append(r.warnings, fmt.Errorf("opensubsonic disabled: %w", err))
+		return r, nil
 	}
 	if extCfg != nil {
 		r.subsonic = NewSubsonicClient(*extCfg)
 	}
 
 	return r, nil
+}
+
+func (r *Resolver) Warnings() []error {
+	if len(r.warnings) == 0 {
+		return nil
+	}
+	out := make([]error, len(r.warnings))
+	copy(out, r.warnings)
+	return out
 }
 
 func (r *Resolver) Suggestions(ctx context.Context, query string) ([]string, error) {
@@ -277,36 +288,12 @@ func (r *Resolver) searchMusic(ctx context.Context, query string, limit int) ([]
 		tracks = tracks[:limit]
 	}
 
-	var wg sync.WaitGroup
-	enrichedTracks := make([]Track, len(tracks))
-
-	for i, t := range tracks {
-		wg.Add(1)
-		go func(idx int, track Track) {
-			defer wg.Done()
-
-			track.IsMusic = true
-			track.Source = SourceYTMusic
-			enrichedTracks[idx] = track
-
-			if track.WebpageURL == "" {
-				return
-			}
-
-			fullCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-			defer cancel()
-
-			fullMeta, err := r.fetchMetadata(fullCtx, track.WebpageURL)
-			if err == nil {
-				fullMeta.IsMusic = true
-				fullMeta.Source = SourceYTMusic
-				enrichedTracks[idx] = fullMeta
-			}
-		}(i, t)
+	for i := range tracks {
+		tracks[i].IsMusic = true
+		tracks[i].Source = SourceYTMusic
 	}
-	wg.Wait()
 
-	return enrichedTracks, nil
+	return tracks, nil
 }
 
 func (r *Resolver) Resolve(ctx context.Context, rawURL string) ([]Track, error) {
@@ -357,21 +344,6 @@ func (r *Resolver) resolveSubsonicTrack(ctx context.Context, ref SubsonicRef) ([
 	track.IsMusic = true
 
 	return []Track{track}, nil
-}
-
-func (r *Resolver) fetchMetadata(ctx context.Context, rawURL string) (Track, error) {
-	args := []string{"--dump-json", "--no-playlist", "--no-download", "--no-warnings", rawURL}
-	cmd := exec.CommandContext(ctx, r.cfg.ShimPath(), args...)
-	out, err := cmd.Output()
-	if err != nil {
-		return Track{}, err
-	}
-
-	var resp ytDlpResponse
-	if err := json.Unmarshal(out, &resp); err != nil {
-		return Track{}, err
-	}
-	return trackFromResponse(resp), nil
 }
 
 func parseLines(data []byte) ([]Track, error) {

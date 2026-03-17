@@ -39,6 +39,9 @@ func main() {
 		logger.Error("Failed to initialize resolver", "error", err)
 		os.Exit(1)
 	}
+	for _, warning := range res.Warnings() {
+		logger.Warn("Optional resolver source disabled", "error", warning)
+	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

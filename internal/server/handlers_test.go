@@ -494,29 +494,17 @@ func TestNew(t *testing.T) {
 
 	if s == nil {
 		t.Fatal("New() returned nil")
-	}
-
-	if s.logger != logger {
+	} else if s.logger != logger {
 		t.Error("Logger not set correctly")
-	}
-
-	if s.player != p {
+	} else if s.player != p {
 		t.Error("Player not set correctly")
-	}
-
-	if s.resolver != r {
+	} else if s.resolver != r {
 		t.Error("Resolver not set correctly")
-	}
-
-	if !bytes.Equal(s.indexHTML, indexHTML) {
+	} else if !bytes.Equal(s.indexHTML, indexHTML) {
 		t.Error("indexHTML not set correctly")
-	}
-
-	if s.broadcaster == nil {
+	} else if s.broadcaster == nil {
 		t.Error("Broadcaster not initialized")
-	}
-
-	if s.server == nil {
+	} else if s.server == nil {
 		t.Error("Server not initialized")
 	}
 }

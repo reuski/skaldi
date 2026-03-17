@@ -3,8 +3,14 @@
 package resolver
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
+	"io"
+	"net/http"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/reuski/skaldi/internal/bootstrap"
 )
@@ -126,8 +132,7 @@ func TestResolverNew(t *testing.T) {
 	}
 	if r == nil {
 		t.Fatal("New() returned nil")
-	}
-	if r.cfg != cfg {
+	} else if r.cfg != cfg {
 		t.Error("Config not set correctly")
 	}
 }
@@ -142,4 +147,51 @@ func TestResolverSearch_InvalidMode(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for invalid mode")
 	}
+}
+
+func TestSearchTypeahead_IgnoresSubsonicFailure(t *testing.T) {
+	r := &Resolver{
+		cfg: &bootstrap.Config{},
+		suggestClient: &http.Client{
+			Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+				body := `["query",["test suggestion"],[],[]]`
+				return &http.Response{
+					StatusCode: http.StatusOK,
+					Body:       io.NopCloser(strings.NewReader(body)),
+					Header:     make(http.Header),
+				}, nil
+			}),
+		},
+		subsonic: &SubsonicClient{
+			httpClient: &http.Client{
+				Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+					return nil, errors.New("dial tcp: connection refused")
+				}),
+			},
+			timeout: 20 * time.Millisecond,
+		},
+	}
+
+	resultCh := r.searchTypeahead(context.Background(), "test", 5)
+
+	var results []SearchResult
+	for result := range resultCh {
+		results = append(results, result)
+	}
+
+	if len(results) != 1 {
+		t.Fatalf("results = %d, want 1", len(results))
+	}
+	if len(results[0].Suggestions) != 1 || results[0].Suggestions[0] != "test suggestion" {
+		t.Fatalf("suggestions = %#v, want [\"test suggestion\"]", results[0].Suggestions)
+	}
+	if len(results[0].Tracks) != 0 {
+		t.Fatalf("tracks = %#v, want none", results[0].Tracks)
+	}
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return f(req)
 }
