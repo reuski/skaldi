@@ -2,9 +2,26 @@
 
 ![CI](https://github.com/reuski/skaldi/actions/workflows/ci.yml/badge.svg) ![Release](https://img.shields.io/github/v/release/reuski/skaldi?style=flat-square) ![Go Report Card](https://goreportcard.com/badge/github.com/reuski/skaldi?style=flat-square)
 
-Self-hosting network jukebox. Single Go binary, web UI, auto-provisions dependencies.
+Skaldi is a self-hosted network jukebox: one Go binary, one embedded web UI, no external Go dependencies.
 
-## Install
+It runs `mpv` locally, exposes a browser UI on your LAN, and provisions `uv`, `bun`, and `yt-dlp` into your cache directory on first run.
+
+## Features
+
+- Queue URLs or upload local files
+- Search YouTube and YouTube Music
+- Optional OpenSubsonic library search
+- Real-time state sync over SSE
+- Queue reordering, history, volume, and mute controls
+- mDNS advertising at `skaldi.local` when available
+
+## Requirements
+
+- `mpv`
+- `ffmpeg`
+- Go `1.26+` to build from source
+
+Install the system packages first:
 
 ```bash
 # macOS
@@ -17,49 +34,18 @@ sudo pacman -S mpv ffmpeg avahi
 sudo apt install mpv ffmpeg avahi-utils
 ```
 
-## Build & Run
-
-Requires Go 1.26 or later.
-
-Primary CI and release builds track the latest stable Go automatically.
+## Quick Start
 
 ```bash
 go build -o skaldi ./cmd/skaldi
 ./skaldi
 ```
 
-First run auto-installs `uv`, `bun`, `yt-dlp` to `~/.cache/skaldi/`.
+Skaldi listens on `http://localhost:8080` and also logs a LAN URL on startup. The first run needs network access to provision `uv`, `bun`, and `yt-dlp` under `~/.cache/skaldi/`.
 
-## macOS Compatibility
+## OpenSubsonic
 
-Mainline builds use the latest stable Go toolchain and support macOS 12 Monterey or newer.
-
-Release builds also publish separate legacy assets for macOS 11 Big Sur:
-
-- `skaldi-darwin-amd64-macos11`
-- `skaldi-darwin-arm64-macos11`
-
-Those legacy darwin assets are built with Go 1.24.13 only during the release build path, so day-to-day development and CI stay on the latest Go.
-
-The legacy darwin recipe builds against `go.legacy.mod`, which keeps the compatibility floor separate from the primary `go.mod`.
-
-## Features
-
-- **Queue**: YouTube URLs, direct file uploads (drag-drop or paste)
-- **Search**: YouTube + YouTube Music with autocomplete
-- **External Library**: OpenSubsonic personal library integration
-- **Sync**: Real-time SSE state updates
-- **Discovery**: Auto-registers as `skaldi.local` via mDNS
-- **Audio**: Dynamic range compression via `dynaudnorm`
-
-## Config File (OpenSubsonic)
-
-Create `config.json` at:
-
-- Linux/macOS default: `~/.config/skaldi/config.json`
-- Or `${XDG_CONFIG_HOME}/skaldi/config.json`
-
-Example:
+OpenSubsonic is optional. If you want it, create `~/.config/skaldi/config.json` or `${XDG_CONFIG_HOME}/skaldi/config.json`:
 
 ```json
 {
@@ -74,51 +60,25 @@ Example:
 }
 ```
 
-Notes:
-
-- Missing/empty config disables external search silently.
-- Invalid enabled config fails fast on startup.
-- External cover art is deferred in v1; placeholder thumbnails are shown.
-
-## API
-
-| Method | Path                               | Description                                              |
-| ------ | ---------------------------------- | -------------------------------------------------------- |
-| GET    | `/`                                | Web UI                                                   |
-| GET    | `/events`                          | SSE stream                                               |
-| GET    | `/suggest?q={query}`               | Autocomplete suggestions                                 |
-| GET    | `/search?q={query}&mode=typeahead` | Text suggestions + external track hits                   |
-| GET    | `/search?q={query}&mode=full`      | Merged track search (OpenSubsonic + YT Music + YouTube) |
-| POST   | `/queue`                           | Add URL `{"url":"..."}`                                  |
-| DELETE | `/queue/{index}`                   | Remove item                                              |
-| POST   | `/playback`                        | Control `{"action":"pause\\|resume\\|skip\\|previous\\|play"}` |
-| POST   | `/upload`                          | File upload (multipart/form-data)                        |
-
-`/search` response shape:
-
-```json
-{
-  "suggestions": ["query text", "another"],
-  "tracks": []
-}
-```
-
-## Security
-
-No authentication. Exposing to the internet allows arbitrary uploads and RCE via media parsers. Run only on trusted networks.
+If the config is missing or disabled, Skaldi starts normally without OpenSubsonic. If the config is invalid, Skaldi disables that source and logs a warning.
 
 ## Development
 
 ```bash
-just all    # lint, test, build
-just lint   # gofmt, golangci-lint, go vet
-just test   # go test -v -race ./internal/...
-just vuln   # govulncheck
-just release-build  # latest artifacts + legacy macOS 11 darwin artifacts
+just all
+just lint
+just test
+just build
+just vuln
+just release-build
 ```
 
-See [`AGENTS.md`](./AGENTS.md) for architecture guidelines.
+`just release-build` produces the standard release artifacts plus separate macOS 11 legacy Darwin binaries built through `go.legacy.mod`.
+
+## Security
+
+Skaldi is designed for trusted networks. There is no authentication, and exposing it directly to the internet is unsafe.
 
 ## License
 
-AGPL-3.0 - See [LICENSE](./LICENSE)
+AGPL-3.0. See [LICENSE](./LICENSE).
