@@ -21,12 +21,25 @@ sudo apt install mpv ffmpeg avahi-utils
 
 Requires Go 1.26 or later.
 
+Primary CI and release builds track the latest stable Go automatically.
+
 ```bash
 go build -o skaldi ./cmd/skaldi
 ./skaldi
 ```
 
 First run auto-installs `uv`, `bun`, `yt-dlp` to `~/.cache/skaldi/`.
+
+## macOS Compatibility
+
+Mainline builds use the latest stable Go toolchain and support macOS 12 Monterey or newer.
+
+Release builds also publish separate legacy assets for macOS 11 Big Sur:
+
+- `skaldi-darwin-amd64-macos11`
+- `skaldi-darwin-arm64-macos11`
+
+Those legacy darwin assets are built with Go 1.24.13 only during the release build path, so day-to-day development and CI stay on the latest Go.
 
 ## Features
 
@@ -99,6 +112,7 @@ just all    # lint, test, build
 just lint   # gofmt, golangci-lint, go vet
 just test   # go test -v -race ./internal/...
 just vuln   # govulncheck
+just release-build  # latest artifacts + legacy macOS 11 darwin artifacts
 ```
 
 See [`AGENTS.md`](./AGENTS.md) for architecture guidelines.
