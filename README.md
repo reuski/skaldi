@@ -41,6 +41,8 @@ Release builds also publish separate legacy assets for macOS 11 Big Sur:
 
 Those legacy darwin assets are built with Go 1.24.13 only during the release build path, so day-to-day development and CI stay on the latest Go.
 
+The legacy darwin recipe builds against `go.legacy.mod`, which keeps the compatibility floor separate from the primary `go.mod`.
+
 ## Features
 
 - **Queue**: YouTube URLs, direct file uploads (drag-drop or paste)
