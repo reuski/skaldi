@@ -61,6 +61,25 @@ func TestTrackFromResponse(t *testing.T) {
 			},
 		},
 		{
+			name: "duration_string_fallback",
+			resp: ytDlpResponse{
+				ID:             "music123",
+				Title:          "Song Title",
+				DurationString: "3:45",
+				Uploader:       "Artist Name - Topic",
+				WebpageURL:     "https://music.youtube.com/watch?v=music123",
+				IEKey:          "Youtube",
+			},
+			expected: Track{
+				Title:      "Song Title",
+				Artist:     "Artist Name - Topic",
+				Duration:   225,
+				Uploader:   "Artist Name - Topic",
+				WebpageURL: "https://music.youtube.com/watch?v=music123",
+				Source:     SourceYouTube,
+			},
+		},
+		{
 			name: "no_webpage_url_uses_id",
 			resp: ytDlpResponse{
 				ID:       "def456",

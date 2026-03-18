@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"net/url"
 	"os/exec"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -45,13 +46,14 @@ type SearchResult struct {
 }
 
 type ytDlpResponse struct {
-	ID         string  `json:"id"`
-	Title      string  `json:"title"`
-	Artist     string  `json:"artist"`
-	Duration   float64 `json:"duration"`
-	Uploader   string  `json:"uploader"`
-	Thumbnail  string  `json:"thumbnail"`
-	Thumbnails []struct {
+	ID             string  `json:"id"`
+	Title          string  `json:"title"`
+	Artist         string  `json:"artist"`
+	Duration       float64 `json:"duration"`
+	DurationString string  `json:"duration_string"`
+	Uploader       string  `json:"uploader"`
+	Thumbnail      string  `json:"thumbnail"`
+	Thumbnails     []struct {
 		URL    string `json:"url"`
 		Height int    `json:"height"`
 		Width  int    `json:"width"`
@@ -292,6 +294,7 @@ func (r *Resolver) searchMusic(ctx context.Context, query string, limit int) ([]
 		tracks[i].IsMusic = true
 		tracks[i].Source = SourceYTMusic
 	}
+	r.hydrateMissingDurations(ctx, tracks)
 
 	return tracks, nil
 }
@@ -344,6 +347,59 @@ func (r *Resolver) resolveSubsonicTrack(ctx context.Context, ref SubsonicRef) ([
 	track.IsMusic = true
 
 	return []Track{track}, nil
+}
+
+func (r *Resolver) hydrateMissingDurations(ctx context.Context, tracks []Track) {
+	const maxConcurrent = 2
+
+	sem := make(chan struct{}, maxConcurrent)
+	var wg sync.WaitGroup
+
+	for i, track := range tracks {
+		if track.Duration > 0 || track.WebpageURL == "" {
+			continue
+		}
+
+		wg.Add(1)
+		go func(idx int, raw Track) {
+			defer wg.Done()
+
+			select {
+			case sem <- struct{}{}:
+			case <-ctx.Done():
+				return
+			}
+			defer func() { <-sem }()
+
+			fullCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+			defer cancel()
+
+			duration, err := r.fetchTrackDuration(fullCtx, raw.WebpageURL)
+			if err != nil {
+				return
+			}
+			if duration > 0 {
+				tracks[idx].Duration = duration
+			}
+		}(i, track)
+	}
+
+	wg.Wait()
+}
+
+func (r *Resolver) fetchTrackDuration(ctx context.Context, rawURL string) (float64, error) {
+	args := []string{"--dump-json", "--no-playlist", "--no-download", "--no-warnings", rawURL}
+	cmd := exec.CommandContext(ctx, r.cfg.ShimPath(), args...)
+	out, err := cmd.Output()
+	if err != nil {
+		return 0, err
+	}
+
+	var resp ytDlpResponse
+	if err := json.Unmarshal(out, &resp); err != nil {
+		return 0, err
+	}
+	return durationFromResponse(resp), nil
 }
 
 func parseLines(data []byte) ([]Track, error) {
@@ -408,10 +464,42 @@ func trackFromResponse(r ytDlpResponse) Track {
 	return Track{
 		Title:      r.Title,
 		Artist:     artist,
-		Duration:   r.Duration,
+		Duration:   durationFromResponse(r),
 		Uploader:   r.Uploader,
 		Thumbnail:  thumb,
 		WebpageURL: url,
 		Source:     SourceYouTube,
 	}
+}
+
+func durationFromResponse(r ytDlpResponse) float64 {
+	if r.Duration > 0 {
+		return r.Duration
+	}
+	if parsed, ok := parseDurationString(r.DurationString); ok {
+		return parsed
+	}
+	return 0
+}
+
+func parseDurationString(raw string) (float64, bool) {
+	if raw == "" {
+		return 0, false
+	}
+
+	parts := strings.Split(raw, ":")
+	if len(parts) < 2 || len(parts) > 3 {
+		return 0, false
+	}
+
+	total := 0
+	for _, part := range parts {
+		value, err := strconv.Atoi(part)
+		if err != nil {
+			return 0, false
+		}
+		total = total*60 + value
+	}
+
+	return float64(total), true
 }
