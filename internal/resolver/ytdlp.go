@@ -49,6 +49,7 @@ type ytDlpResponse struct {
 	ID             string  `json:"id"`
 	Title          string  `json:"title"`
 	Artist         string  `json:"artist"`
+	Channel        string  `json:"channel"`
 	Duration       float64 `json:"duration"`
 	DurationString string  `json:"duration_string"`
 	Uploader       string  `json:"uploader"`
@@ -294,7 +295,7 @@ func (r *Resolver) searchMusic(ctx context.Context, query string, limit int) ([]
 		tracks[i].IsMusic = true
 		tracks[i].Source = SourceYTMusic
 	}
-	r.hydrateMissingDurations(ctx, tracks)
+	r.hydrateTracks(ctx, tracks)
 
 	return tracks, nil
 }
@@ -349,57 +350,67 @@ func (r *Resolver) resolveSubsonicTrack(ctx context.Context, ref SubsonicRef) ([
 	return []Track{track}, nil
 }
 
-func (r *Resolver) hydrateMissingDurations(ctx context.Context, tracks []Track) {
-	const maxConcurrent = 2
+func (r *Resolver) hydrateTracks(ctx context.Context, tracks []Track) {
+	hydrateCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 4*time.Second)
+	defer cancel()
 
-	sem := make(chan struct{}, maxConcurrent)
+	sem := make(chan struct{}, 2)
 	var wg sync.WaitGroup
 
-	for i, track := range tracks {
-		if track.Duration > 0 || track.WebpageURL == "" {
+	for i := range tracks {
+		if tracks[i].Duration > 0 && tracks[i].Artist != "" {
+			continue
+		}
+		if tracks[i].WebpageURL == "" {
 			continue
 		}
 
 		wg.Add(1)
-		go func(idx int, raw Track) {
+		go func(idx int) {
 			defer wg.Done()
 
 			select {
 			case sem <- struct{}{}:
-			case <-ctx.Done():
+			case <-hydrateCtx.Done():
 				return
 			}
 			defer func() { <-sem }()
 
-			fullCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
-			defer cancel()
+			fetchCtx, fetchCancel := context.WithTimeout(hydrateCtx, 2*time.Second)
+			defer fetchCancel()
 
-			duration, err := r.fetchTrackDuration(fullCtx, raw.WebpageURL)
+			meta, err := r.fetchTrackMeta(fetchCtx, tracks[idx].WebpageURL)
 			if err != nil {
 				return
 			}
-			if duration > 0 {
-				tracks[idx].Duration = duration
+			if tracks[idx].Artist == "" {
+				tracks[idx].Artist = meta.Artist
 			}
-		}(i, track)
+			if tracks[idx].Duration == 0 {
+				tracks[idx].Duration = meta.Duration
+			}
+		}(i)
 	}
 
 	wg.Wait()
 }
 
-func (r *Resolver) fetchTrackDuration(ctx context.Context, rawURL string) (float64, error) {
+func (r *Resolver) fetchTrackMeta(ctx context.Context, rawURL string) (Track, error) {
 	args := []string{"--dump-json", "--no-playlist", "--no-download", "--no-warnings", rawURL}
 	cmd := exec.CommandContext(ctx, r.cfg.ShimPath(), args...)
 	out, err := cmd.Output()
 	if err != nil {
-		return 0, err
+		return Track{}, err
 	}
 
 	var resp ytDlpResponse
 	if err := json.Unmarshal(out, &resp); err != nil {
-		return 0, err
+		return Track{}, err
 	}
-	return durationFromResponse(resp), nil
+	return Track{
+		Artist:   coalesce(resp.Artist, resp.Channel, resp.Uploader),
+		Duration: durationFromResponse(resp),
+	}, nil
 }
 
 func parseLines(data []byte) ([]Track, error) {
@@ -439,10 +450,7 @@ func isNoTracksError(err error) bool {
 }
 
 func trackFromResponse(r ytDlpResponse) Track {
-	artist := r.Artist
-	if artist == "" {
-		artist = r.Uploader
-	}
+	artist := coalesce(r.Artist, r.Channel, r.Uploader)
 
 	url := r.WebpageURL
 	if url == "" && r.ID != "" && r.IEKey == "Youtube" {
@@ -480,6 +488,15 @@ func durationFromResponse(r ytDlpResponse) float64 {
 		return parsed
 	}
 	return 0
+}
+
+func coalesce(values ...string) string {
+	for _, v := range values {
+		if v != "" {
+			return v
+		}
+	}
+	return ""
 }
 
 func parseDurationString(raw string) (float64, bool) {

@@ -1360,7 +1360,7 @@
 
       function renderTrackItemHTML(t) {
         const title = escHTML(t.title);
-        const artist = escHTML(t.artist || t.uploader);
+        const artist = escHTML(t.artist);
         const source = trackSource(t);
         const thumb = trackThumb(t);
         const dur = trackDuration(t);
@@ -1391,7 +1391,7 @@
 
       function renderTypeaheadTrackItemHTML(t) {
         const title = escHTML(t.title || "");
-        const artist = escHTML(t.artist || t.uploader || "Unknown");
+        const artist = escHTML(t.artist);
         const dur = trackDuration(t);
         const line = artist + " - " + title;
         return (
@@ -1413,7 +1413,7 @@
       }
 
       function trackDuration(t) {
-        return fmtTime(t.duration || 0);
+        return fmtTime(t.duration);
       }
 
       function trackThumb(t) {
