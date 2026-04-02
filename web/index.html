@@ -736,6 +736,19 @@
         display: block;
       }
 
+      .search-section + .search-section {
+        border-top: 1px solid var(--border);
+      }
+
+      .search-section-label {
+        padding: 8px 16px 6px;
+        font-size: 11px;
+        font-weight: 600;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--text-dim);
+      }
+
       .suggest-text {
         padding: 12px 16px;
         cursor: pointer;
@@ -763,6 +776,10 @@
       .suggest-text.typeahead-track .duration {
         margin-left: auto;
         padding-left: 8px;
+      }
+
+      .suggest-text.typeahead-track .badge {
+        flex-shrink: 0;
       }
 
       .suggest-text:last-child {
@@ -862,6 +879,12 @@
         color: var(--text-sec);
         font-size: 13px;
         font-style: italic;
+      }
+
+      .search-status {
+        padding: 6px 16px 12px;
+        font-size: 12px;
+        color: var(--text-dim);
       }
 
       .toast {
@@ -1119,101 +1142,94 @@
       };
 
       let suggestTimeout;
-      let searchState = {
-        typeaheadAbort: null,
-        fullAbort: null,
-        results: [],
-      };
-      const typeaheadCache = new Map();
-      const fullSearchCache = new Map();
-      const SEARCH_CACHE_LIMIT = 48;
-      const MAX_TYPEAHEAD_SUGGESTIONS = 6;
-      const MAX_TYPEAHEAD_TRACKS = 4;
+      let searchState = createSearchState();
+      const searchCache = new Map();
+      const SEARCH_CACHE_LIMIT = 64;
+      const SEARCH_DEBOUNCE_MS = 90;
       let currentFocusIndex = -1;
-      let dropdownMode = "";
-      let typeaheadSeq = 0;
-      let fullSearchSeq = 0;
-      let pendingTypeaheadRender = null;
-      let typeaheadRenderFrame = 0;
+      let currentFocusKey = "";
+      let searchSeq = 0;
+      let searchRenderFrame = 0;
 
-      urlInput.addEventListener("input", (e) => {
-        const q = e.target.value.trim();
-        clearTimeout(suggestTimeout);
-        if (searchState.typeaheadAbort) searchState.typeaheadAbort.abort();
-        if (searchState.fullAbort) searchState.fullAbort.abort();
-
-        searchState = {
-          typeaheadAbort: null,
-          fullAbort: null,
-          results: [],
+      function createSearchBucket() {
+        return {
+          complete: true,
+          suggestions: [],
+          hits: [],
         };
+      }
 
-        if (!q || q.startsWith("http")) {
-          closeSuggestions();
-          return;
+      function createSearchState() {
+        return {
+          intent: "",
+          query: "",
+          error: "",
+          abort: null,
+          buckets: {
+            suggestions: createSearchBucket(),
+            external: createSearchBucket(),
+            youtube: createSearchBucket(),
+            ytmusic: createSearchBucket(),
+          },
+        };
+      }
+
+      function beginSearchState(intent, query) {
+        const state = createSearchState();
+        state.intent = intent;
+        state.query = query;
+        if (intent === "typeahead") {
+          state.buckets.suggestions.complete = false;
         }
-
-        const cached = readCache(typeaheadCache, normalizeSearchQuery(q));
-        if (cached) {
-          scheduleTypeaheadRender(cached.suggestions, cached.tracks);
+        if (intent === "results") {
+          state.buckets.youtube.complete = false;
+          state.buckets.ytmusic.complete = false;
         }
+        return state;
+      }
 
-        suggestTimeout = setTimeout(() => fetchTypeahead(q), 110);
-      });
+      function snapshotSearchState(state) {
+        return {
+          intent: state.intent,
+          query: state.query,
+          error: state.error,
+          buckets: structuredClone(state.buckets),
+        };
+      }
+
+      function restoreSearchState(snapshot) {
+        const state = createSearchState();
+        if (!snapshot) return state;
+        state.intent = snapshot.intent || "";
+        state.query = snapshot.query || "";
+        state.error = snapshot.error || "";
+        state.buckets = structuredClone(snapshot.buckets || state.buckets);
+        return state;
+      }
 
       function normalizeSearchQuery(q) {
         return q.trim().replace(/\s+/g, " ").toLowerCase();
       }
 
-      function readCache(cache, key) {
-        if (!key || !cache.has(key)) return null;
-        const value = cache.get(key);
-        cache.delete(key);
-        cache.set(key, value);
-        return value;
+      function searchCacheKey(intent, q) {
+        return intent + ":" + normalizeSearchQuery(q);
       }
 
-      function writeCache(cache, key, value) {
-        if (!key) return;
-        if (cache.has(key)) cache.delete(key);
-        cache.set(key, value);
-        while (cache.size > SEARCH_CACHE_LIMIT) {
-          cache.delete(cache.keys().next().value);
+      function readSearchCache(key) {
+        if (!key || !searchCache.has(key)) return null;
+        const value = searchCache.get(key);
+        searchCache.delete(key);
+        searchCache.set(key, value);
+        return structuredClone(value);
+      }
+
+      function writeSearchCache(key, snapshot) {
+        if (!key || !snapshot) return;
+        if (searchCache.has(key)) searchCache.delete(key);
+        searchCache.set(key, structuredClone(snapshot));
+        while (searchCache.size > SEARCH_CACHE_LIMIT) {
+          searchCache.delete(searchCache.keys().next().value);
         }
-      }
-
-      function dedupeTextSuggestions(items) {
-        const seen = new Set();
-        const out = [];
-        for (const item of items || []) {
-          const text = String(item || "").trim();
-          if (!text) continue;
-          const key = text.toLowerCase();
-          if (seen.has(key)) continue;
-          seen.add(key);
-          out.push(text);
-          if (out.length >= MAX_TYPEAHEAD_SUGGESTIONS) break;
-        }
-        return out;
-      }
-
-      function getTrackKey(t) {
-        if (t.webpage_url) return t.webpage_url;
-        if (t.url) return t.url;
-        return (t.title + "|" + (t.artist || t.uploader)).toLowerCase();
-      }
-
-      function dedupeTracks(tracks, limit) {
-        const seen = new Set();
-        const out = [];
-        for (const track of tracks || []) {
-          const key = getTrackKey(track);
-          if (!key || seen.has(key)) continue;
-          seen.add(key);
-          out.push(track);
-          if (limit && out.length >= limit) break;
-        }
-        return out;
       }
 
       function setSuggestionsOpen(isOpen) {
@@ -1224,17 +1240,22 @@
         }
       }
 
+      function searchOptions() {
+        return suggestions.querySelectorAll('[data-search-option="true"]');
+      }
+
       function syncSuggestionAccessibility() {
-        const items = suggestions.querySelectorAll(
-          ".suggest-text, .suggestion-item",
-        );
+        const items = searchOptions();
+        currentFocusIndex = -1;
         items.forEach((item, idx) => {
+          const isActive = item.dataset.searchKey === currentFocusKey;
           item.id = "search-option-" + idx;
           item.setAttribute("role", "option");
-          item.setAttribute(
-            "aria-selected",
-            idx === currentFocusIndex ? "true" : "false",
-          );
+          item.setAttribute("aria-selected", isActive ? "true" : "false");
+          item.classList.toggle("active", isActive);
+          if (isActive) {
+            currentFocusIndex = idx;
+          }
         });
         if (currentFocusIndex >= 0 && currentFocusIndex < items.length) {
           urlInput.setAttribute(
@@ -1246,10 +1267,12 @@
         }
       }
 
-      function showSuggestionStatus(text) {
-        suggestions.innerHTML = '<div class="loading-item">' + text + "</div>";
-        setSuggestionsOpen(true);
-        syncSuggestionAccessibility();
+      function scheduleSearchRender() {
+        if (searchRenderFrame) return;
+        searchRenderFrame = requestAnimationFrame(() => {
+          searchRenderFrame = 0;
+          renderSearchDropdown();
+        });
       }
 
       async function readNDJSON(response, onPayload) {
@@ -1262,12 +1285,12 @@
             const lines = buffer.split("\n");
             buffer = lines.pop();
             for (const line of lines) {
-              const t = line.trim();
-              if (t) onPayload(JSON.parse(t));
+              const text = line.trim();
+              if (text) onPayload(JSON.parse(text));
             }
             if (done) {
-              const t = buffer.trim();
-              if (t) onPayload(JSON.parse(t));
+              const text = buffer.trim();
+              if (text) onPayload(JSON.parse(text));
               break;
             }
           }
@@ -1276,149 +1299,20 @@
         }
       }
 
-      async function fetchTypeahead(q) {
-        const cacheKey = normalizeSearchQuery(q);
-        const seq = ++typeaheadSeq;
-        const abort = new AbortController();
-        searchState.typeaheadAbort = abort;
-        const cached = readCache(typeaheadCache, cacheKey);
-        if (cached) {
-          scheduleTypeaheadRender(cached.suggestions, cached.tracks);
-        }
-        try {
-          const res = await fetch(
-            "/search?q=" + encodeURIComponent(q) + "&mode=typeahead",
-            { signal: abort.signal }
-          );
-          if (!res.ok) throw new Error();
-
-          let allSuggestions = [];
-          let allTracks = [];
-          let latestSuggestions = cached ? cached.suggestions : [];
-          let latestTracks = cached ? cached.tracks : [];
-
-          await readNDJSON(res, (payload) => {
-            if (seq !== typeaheadSeq || searchState.typeaheadAbort !== abort) {
-              return;
-            }
-            if (payload.suggestions) allSuggestions.push(...payload.suggestions);
-            if (payload.tracks) {
-              allTracks.push(...payload.tracks);
-            }
-            const suggestionsList = dedupeTextSuggestions(allSuggestions);
-            const trackList = dedupeTracks(allTracks, MAX_TYPEAHEAD_TRACKS);
-            latestSuggestions = suggestionsList;
-            latestTracks = trackList;
-            writeCache(typeaheadCache, cacheKey, {
-              suggestions: suggestionsList,
-              tracks: trackList,
-            });
-            scheduleTypeaheadRender(suggestionsList, trackList);
-          });
-          if (
-            seq === typeaheadSeq &&
-            searchState.typeaheadAbort === abort &&
-            latestSuggestions.length === 0 &&
-            latestTracks.length === 0
-          ) {
-            closeSuggestions();
-          }
-        } catch (err) {
-          if (
-            err.name !== "AbortError" &&
-            seq === typeaheadSeq &&
-            searchState.typeaheadAbort === abort &&
-            !cached
-          ) {
-            closeSuggestions();
-          }
-        } finally {
-          if (searchState.typeaheadAbort === abort) {
-            searchState.typeaheadAbort = null;
-          }
-        }
+      function escAttr(value) {
+        return String(value || "")
+          .replace(/&/g, "&amp;")
+          .replace(/"/g, "&quot;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;");
       }
 
-      function trackToItem(t) {
-        return {
-          data: t,
-          url: t.webpage_url || t.url,
-          html: renderTrackItemHTML(t),
-        };
+      function searchHitDuration(hit) {
+        return fmtTime(hit.duration);
       }
 
-      function renderMergedResults() {
-        if (!searchState.results.length) {
-          showSuggestionStatus("No results found");
-          return;
-        }
-
-        suggestions.innerHTML = searchState.results.map((r) => r.html).join("");
-        setSuggestionsOpen(true);
-        syncSuggestionAccessibility();
-      }
-
-      function renderTrackItemHTML(t) {
-        const title = escHTML(t.title);
-        const artist = escHTML(t.artist);
-        const source = trackSource(t);
-        const thumb = trackThumb(t);
-        const dur = trackDuration(t);
-        const sourceBadge = renderSourceBadge(source);
-
-        return (
-          '<div class="suggestion-item" data-url="' +
-          (t.webpage_url || t.url) +
-          '">' +
-          '<img src="' +
-          thumb +
-          '" class="sug-thumb" loading="lazy">' +
-          '<div class="sug-info">' +
-          '<div class="sug-title">' +
-          title +
-          "</div>" +
-          '<div class="sug-artist">' +
-          sourceBadge +
-          artist +
-          "</div>" +
-          "</div>" +
-          '<div class="duration">' +
-          dur +
-          "</div>" +
-          "</div>"
-        );
-      }
-
-      function renderTypeaheadTrackItemHTML(t) {
-        const title = escHTML(t.title || "");
-        const artist = escHTML(t.artist);
-        const dur = trackDuration(t);
-        const line = artist + " - " + title;
-        return (
-          '<div class="suggest-text typeahead-track" data-url="' +
-          (t.webpage_url || t.url) +
-          '">' +
-          '<span class="typeahead-track-line">' +
-          line +
-          "</span>" +
-          '<span class="duration">' +
-          dur +
-          "</span>" +
-          "</div>"
-        );
-      }
-
-      function trackSource(t) {
-        return t.source || (t.is_music ? "ytmusic" : "youtube");
-      }
-
-      function trackDuration(t) {
-        return fmtTime(t.duration);
-      }
-
-      function trackThumb(t) {
-        if (t.thumbnail) return t.thumbnail;
-        return PLACEHOLDER;
+      function searchHitThumb(hit) {
+        return hit.thumbnail || PLACEHOLDER;
       }
 
       function renderSourceBadge(source) {
@@ -1431,196 +1325,371 @@
         return "";
       }
 
-      async function searchTracks(q) {
-        const cacheKey = normalizeSearchQuery(q);
-        const seq = ++fullSearchSeq;
-        dropdownMode = "tracks";
-        currentFocusIndex = -1;
-        if (searchState.fullAbort) searchState.fullAbort.abort();
-        const fullAbort = new AbortController();
-        searchState.fullAbort = fullAbort;
-        const cached = readCache(fullSearchCache, cacheKey);
-
-        if (cached && cached.length) {
-          searchState.results = cached.map(trackToItem);
-          renderMergedResults();
-        } else {
-          showSuggestionStatus("Searching...");
-        }
-
-        try {
-          const res = await fetch(
-            "/search?q=" + encodeURIComponent(q) + "&mode=full",
-            { signal: fullAbort.signal }
-          );
-          if (!res.ok) throw new Error();
-
-          searchState.results = [];
-          let hasRendered = false;
-          let allTracks = [];
-
-          await readNDJSON(res, (payload) => {
-            if (seq !== fullSearchSeq || searchState.fullAbort !== fullAbort) {
-              return;
-            }
-            allTracks.push(...(payload.tracks || []));
-            const deduped = dedupeTracks(allTracks);
-            searchState.results = deduped.map(trackToItem);
-            const added = deduped.length > 0;
-            if (added) {
-              writeCache(fullSearchCache, cacheKey, deduped);
-              renderMergedResults();
-              hasRendered = true;
-            }
-          });
-
-          if (!hasRendered && searchState.results.length === 0) {
-            renderMergedResults();
-          }
-        } catch (err) {
-          if (
-            err.name !== "AbortError" &&
-            seq === fullSearchSeq &&
-            searchState.fullAbort === fullAbort &&
-            (!cached || !cached.length)
-          ) {
-            showSuggestionStatus("Search failed");
-          }
-        } finally {
-          if (searchState.fullAbort === fullAbort) {
-            searchState.fullAbort = null;
-          }
-        }
+      function renderTextSuggestionHTML(text) {
+        const key = "suggestion:" + normalizeSearchQuery(text);
+        return (
+          '<div class="suggest-text" data-search-option="true" data-search-key="' +
+          escAttr(key) +
+          '" data-kind="suggestion" data-value="' +
+          escAttr(text) +
+          '">' +
+          escHTML(text) +
+          "</div>"
+        );
       }
 
-      function scheduleTypeaheadRender(items, tracks) {
-        pendingTypeaheadRender = { items: items || [], tracks: tracks || [] };
-        if (typeaheadRenderFrame) return;
-        typeaheadRenderFrame = requestAnimationFrame(() => {
-          const next = pendingTypeaheadRender;
-          pendingTypeaheadRender = null;
-          typeaheadRenderFrame = 0;
-          if (next) renderTypeahead(next.items, next.tracks);
-        });
+      function renderTypeaheadHitHTML(hit) {
+        const title = escHTML(hit.title || "");
+        const artist = escHTML(hit.artist || "");
+        const line = (artist ? artist + " - " : "") + title;
+        const key = "queue:" + hit.queue_url;
+        return (
+          '<div class="suggest-text typeahead-track" data-search-option="true" data-search-key="' +
+          escAttr(key) +
+          '" data-kind="hit" data-queue-url="' +
+          escAttr(hit.queue_url) +
+          '">' +
+          renderSourceBadge(hit.source) +
+          '<span class="typeahead-track-line">' +
+          line +
+          "</span>" +
+          '<span class="duration">' +
+          searchHitDuration(hit) +
+          "</span>" +
+          "</div>"
+        );
       }
 
-      function renderTypeahead(items, tracks) {
-        const suggestionItems = items || [];
-        const textHTML = suggestionItems
-          .map((s) => '<div class="suggest-text">' + escHTML(s) + "</div>")
-          .join("");
-        const trackHTML = dedupeTracks(tracks, MAX_TYPEAHEAD_TRACKS)
-          .map(renderTypeaheadTrackItemHTML)
-          .join("");
-        if (!textHTML && !trackHTML) {
-          closeSuggestions();
+      function renderResultHitHTML(hit) {
+        const title = escHTML(hit.title);
+        const artist = escHTML(hit.artist);
+        const key = "queue:" + hit.queue_url;
+        return (
+          '<div class="suggestion-item" data-search-option="true" data-search-key="' +
+          escAttr(key) +
+          '" data-kind="hit" data-queue-url="' +
+          escAttr(hit.queue_url) +
+          '">' +
+          '<img src="' +
+          searchHitThumb(hit) +
+          '" class="sug-thumb" loading="lazy">' +
+          '<div class="sug-info">' +
+          '<div class="sug-title">' +
+          title +
+          "</div>" +
+          '<div class="sug-artist">' +
+          renderSourceBadge(hit.source) +
+          artist +
+          "</div>" +
+          "</div>" +
+          '<div class="duration">' +
+          searchHitDuration(hit) +
+          "</div>" +
+          "</div>"
+        );
+      }
+
+      function bucketLabel(bucket) {
+        if (bucket === "suggestions") return "Suggestions";
+        if (bucket === "external") return "Library";
+        if (bucket === "youtube") return "YouTube";
+        if (bucket === "ytmusic") return "YT Music";
+        return "";
+      }
+
+      function bucketState(name) {
+        return searchState.buckets[name] || createSearchBucket();
+      }
+
+      function renderTypeaheadSection(bucket) {
+        const state = bucketState(bucket);
+        let body = "";
+        if (bucket === "suggestions") {
+          body = state.suggestions.map(renderTextSuggestionHTML).join("");
+        } else if (bucket === "external") {
+          body = state.hits.map(renderTypeaheadHitHTML).join("");
+        }
+        if (!body) return "";
+        return (
+          '<div class="search-section">' +
+          '<div class="search-section-label">' +
+          bucketLabel(bucket) +
+          "</div>" +
+          body +
+          "</div>"
+        );
+      }
+
+      function renderResultsSection(bucket) {
+        const state = bucketState(bucket);
+        if (state.complete && state.hits.length === 0) {
+          return "";
+        }
+        const hitsHTML = state.hits.map(renderResultHitHTML).join("");
+        const statusHTML = state.complete
+          ? ""
+          : '<div class="search-status">Loading ' +
+            bucketLabel(bucket) +
+            "...</div>";
+        return (
+          '<div class="search-section">' +
+          '<div class="search-section-label">' +
+          bucketLabel(bucket) +
+          "</div>" +
+          hitsHTML +
+          statusHTML +
+          "</div>"
+        );
+      }
+
+      function renderSearchDropdown() {
+        if (!searchState.intent || !searchState.query) {
+          setSuggestionsOpen(false);
+          suggestions.innerHTML = "";
           return;
         }
-        dropdownMode = "suggest";
-        currentFocusIndex = -1;
-        suggestions.innerHTML = textHTML + trackHTML;
+
+        let html = "";
+        if (searchState.intent === "typeahead") {
+          html =
+            renderTypeaheadSection("suggestions") +
+            renderTypeaheadSection("external");
+          if (!html) {
+            if (searchState.error) {
+              html = '<div class="loading-item">' + escHTML(searchState.error) + "</div>";
+            } else if (searchState.abort || !bucketState("suggestions").complete) {
+              html = '<div class="loading-item">Searching...</div>';
+            } else {
+              closeSuggestions({ preserveInput: true });
+              return;
+            }
+          }
+        } else {
+          html =
+            renderResultsSection("external") +
+            renderResultsSection("youtube") +
+            renderResultsSection("ytmusic");
+          if (!html) {
+            if (searchState.error) {
+              html = '<div class="loading-item">' + escHTML(searchState.error) + "</div>";
+            } else if (
+              !bucketState("youtube").complete ||
+              !bucketState("ytmusic").complete
+            ) {
+              html = '<div class="loading-item">Searching...</div>';
+            } else {
+              html = '<div class="loading-item">No results found</div>';
+            }
+          }
+        }
+
+        suggestions.innerHTML = html;
         setSuggestionsOpen(true);
         syncSuggestionAccessibility();
       }
 
-      function closeSuggestions() {
-        if (searchState.typeaheadAbort) searchState.typeaheadAbort.abort();
-        if (searchState.fullAbort) searchState.fullAbort.abort();
-        if (typeaheadRenderFrame) cancelAnimationFrame(typeaheadRenderFrame);
-        typeaheadRenderFrame = 0;
-        pendingTypeaheadRender = null;
-        setSuggestionsOpen(false);
-        suggestions.innerHTML = "";
-        dropdownMode = "";
-        currentFocusIndex = -1;
-        searchState = {
-          typeaheadAbort: null,
-          fullAbort: null,
-          results: [],
-        };
+      function applySearchBatch(batch) {
+        const bucket = searchState.buckets[batch.bucket];
+        if (!bucket || batch.intent !== searchState.intent) return;
+        bucket.complete = !!batch.complete;
+        if (Array.isArray(batch.suggestions)) {
+          bucket.suggestions = batch.suggestions.slice();
+        }
+        if (Array.isArray(batch.hits)) {
+          bucket.hits = batch.hits.slice();
+        }
+        searchState.error = "";
+        scheduleSearchRender();
       }
 
+      function markSearchFailed(intent) {
+        if (intent === "results") {
+          searchState.error = "Search failed";
+          scheduleSearchRender();
+          return;
+        }
+        closeSuggestions({ preserveInput: true });
+      }
+
+      async function runSearch(q, intent) {
+        const trimmed = q.trim();
+        if (!trimmed || trimmed.startsWith("http")) {
+          closeSuggestions({ preserveInput: true });
+          return;
+        }
+
+        clearTimeout(suggestTimeout);
+        if (searchState.abort) searchState.abort.abort();
+
+        const seq = ++searchSeq;
+        const cacheKey = searchCacheKey(intent, trimmed);
+        const cached = readSearchCache(cacheKey);
+        const abort = new AbortController();
+
+        searchState = cached ? restoreSearchState(cached) : beginSearchState(intent, trimmed);
+        searchState.intent = intent;
+        searchState.query = trimmed;
+        searchState.abort = abort;
+        searchState.error = "";
+        scheduleSearchRender();
+
+        try {
+          const res = await fetch(
+            "/search?q=" +
+              encodeURIComponent(trimmed) +
+              "&intent=" +
+              encodeURIComponent(intent),
+            { signal: abort.signal },
+          );
+          if (!res.ok) throw new Error(await res.text());
+
+          await readNDJSON(res, (batch) => {
+            if (seq !== searchSeq || searchState.abort !== abort) return;
+            applySearchBatch(batch);
+            writeSearchCache(cacheKey, snapshotSearchState(searchState));
+          });
+          if (seq === searchSeq && searchState.abort === abort) {
+            writeSearchCache(cacheKey, snapshotSearchState(searchState));
+            scheduleSearchRender();
+          }
+        } catch (err) {
+          if (
+            err.name !== "AbortError" &&
+            seq === searchSeq &&
+            searchState.abort === abort
+          ) {
+            markSearchFailed(intent);
+          }
+        } finally {
+          if (searchState.abort === abort) {
+            searchState.abort = null;
+          }
+          scheduleSearchRender();
+        }
+      }
+
+      async function searchTracks(q) {
+        currentFocusKey = "";
+        currentFocusIndex = -1;
+        await runSearch(q, "results");
+      }
+
+      function closeSuggestions(options) {
+        const opts = options || {};
+        clearTimeout(suggestTimeout);
+        if (searchState.abort) searchState.abort.abort();
+        if (searchRenderFrame) cancelAnimationFrame(searchRenderFrame);
+        searchRenderFrame = 0;
+        setSuggestionsOpen(false);
+        suggestions.innerHTML = "";
+        currentFocusIndex = -1;
+        currentFocusKey = "";
+        searchState = createSearchState();
+        if (!opts.preserveInput) {
+          urlInput.value = "";
+        }
+      }
+
+      urlInput.addEventListener("input", (e) => {
+        const q = e.target.value.trim();
+        clearTimeout(suggestTimeout);
+        if (searchState.abort) searchState.abort.abort();
+
+        if (!q || q.startsWith("http")) {
+          closeSuggestions({ preserveInput: true });
+          return;
+        }
+
+        const cached = readSearchCache(searchCacheKey("typeahead", q));
+        searchState = cached ? restoreSearchState(cached) : beginSearchState("typeahead", q);
+        searchState.intent = "typeahead";
+        searchState.query = q;
+        searchState.error = "";
+        scheduleSearchRender();
+
+        suggestTimeout = setTimeout(() => {
+          void runSearch(q, "typeahead");
+        }, SEARCH_DEBOUNCE_MS);
+      });
+
       urlInput.addEventListener("keydown", (e) => {
-        const items = suggestions.querySelectorAll(
-          ".suggest-text, .suggestion-item",
-        );
+        const items = searchOptions();
         const isActive = suggestions.classList.contains("active");
 
-        if (e.key === "ArrowDown" || (e.key === "Tab" && !e.shiftKey)) {
-          if (items.length && isActive) {
-            e.preventDefault();
-            currentFocusIndex = (currentFocusIndex + 1) % items.length;
-            updateSelection(items);
-          }
-        } else if (e.key === "ArrowUp" || (e.key === "Tab" && e.shiftKey)) {
-          if (items.length && isActive) {
-            e.preventDefault();
-            if (currentFocusIndex === -1) {
-              currentFocusIndex = items.length - 1;
-            } else {
-              currentFocusIndex =
-                (currentFocusIndex - 1 + items.length) % items.length;
-            }
-            updateSelection(items);
-          }
-        } else if (e.key === "Enter") {
-          if (isActive && currentFocusIndex > -1 && items.length) {
+        if (e.key === "ArrowDown") {
+          if (!items.length || !isActive) return;
+          e.preventDefault();
+          const nextIndex =
+            currentFocusIndex < 0 ? 0 : (currentFocusIndex + 1) % items.length;
+          currentFocusKey = items[nextIndex].dataset.searchKey || "";
+          syncSuggestionAccessibility();
+          items[nextIndex].scrollIntoView({ block: "nearest" });
+          return;
+        }
+
+        if (e.key === "ArrowUp") {
+          if (!items.length || !isActive) return;
+          e.preventDefault();
+          const nextIndex =
+            currentFocusIndex < 0
+              ? items.length - 1
+              : (currentFocusIndex - 1 + items.length) % items.length;
+          currentFocusKey = items[nextIndex].dataset.searchKey || "";
+          syncSuggestionAccessibility();
+          items[nextIndex].scrollIntoView({ block: "nearest" });
+          return;
+        }
+
+        if (e.key === "Enter") {
+          if (isActive && currentFocusIndex >= 0 && items.length) {
             e.preventDefault();
             items[currentFocusIndex].click();
-          } else if (isActive && dropdownMode === "suggest") {
-            e.preventDefault();
+            return;
+          }
+          if (isActive && searchState.intent === "typeahead") {
             const q = urlInput.value.trim();
             if (q && !q.startsWith("http")) {
-              searchTracks(q);
+              e.preventDefault();
+              void searchTracks(q);
             }
           }
-        } else if (e.key === "Escape") {
+          return;
+        }
+
+        if (e.key === "Escape") {
           if (isActive) {
             e.preventDefault();
             e.stopPropagation();
-            closeSuggestions();
+            closeSuggestions({ preserveInput: true });
           } else {
             e.target.blur();
           }
         }
       });
 
-      function updateSelection(items) {
-        items.forEach((item, idx) => {
-          if (idx === currentFocusIndex) {
-            item.classList.add("active");
-            item.scrollIntoView({ block: "nearest" });
-          } else {
-            item.classList.remove("active");
-          }
-        });
-        syncSuggestionAccessibility();
-      }
-
       suggestions.addEventListener("click", (e) => {
         e.stopPropagation();
-        const textItem = e.target.closest(".suggest-text");
-        if (textItem) {
-          if (textItem.dataset.url) {
-            addToQueue(textItem.dataset.url);
-            closeSuggestions();
-            return;
-          }
-          const q = textItem.textContent;
+        const option = e.target.closest('[data-search-option="true"]');
+        if (!option) return;
+
+        const kind = option.dataset.kind;
+        if (kind === "suggestion") {
+          const q = option.dataset.value || option.textContent || "";
           urlInput.value = q;
-          searchTracks(q);
+          void searchTracks(q);
           return;
         }
-        const trackItem = e.target.closest(".suggestion-item");
-        if (trackItem) {
-          addToQueue(trackItem.dataset.url);
-          closeSuggestions();
+
+        const queueURL = option.dataset.queueUrl;
+        if (queueURL) {
+          addToQueue(queueURL);
+          closeSuggestions({ preserveInput: false });
         }
       });
 
       document.addEventListener("click", (e) => {
         if (!e.target.closest(".search-container")) {
-          closeSuggestions();
+          closeSuggestions({ preserveInput: true });
         }
       });
 

@@ -3,12 +3,14 @@
 package server
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/json"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -148,16 +150,55 @@ func TestHandlePlayback_InvalidAction(t *testing.T) {
 	}
 }
 
-func TestHandleSearch_InvalidMode(t *testing.T) {
+func TestHandleSearch_InvalidIntent(t *testing.T) {
 	s, _ := setupTestServer(t)
 
-	req := httptest.NewRequest(http.MethodGet, "/search?q=test&mode=legacy", nil)
+	req := httptest.NewRequest(http.MethodGet, "/search?q=test&intent=legacy", nil)
 	rr := httptest.NewRecorder()
 
 	s.handleSearch(rr, req)
 
 	if rr.Code != http.StatusBadRequest {
 		t.Errorf("Status = %d, want %d", rr.Code, http.StatusBadRequest)
+	}
+}
+
+func TestHandleSearch_StreamsCanonicalBatchesWithoutExternalLibrary(t *testing.T) {
+	s := setupSearchServer(t, false)
+
+	req := httptest.NewRequest(http.MethodGet, "/search?q=test%20song&intent=results", nil)
+	rr := httptest.NewRecorder()
+
+	s.handleSearch(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("Status = %d, want %d", rr.Code, http.StatusOK)
+	}
+
+	batches := decodeSearchBatches(t, rr.Body.String())
+	if len(batches) < 2 {
+		t.Fatalf("batch count = %d, want at least 2", len(batches))
+	}
+
+	seen := make(map[resolver.SearchBucket]bool)
+	for _, batch := range batches {
+		if batch.Intent != resolver.SearchIntentResults {
+			t.Fatalf("intent = %q, want %q", batch.Intent, resolver.SearchIntentResults)
+		}
+		if batch.Bucket == "" {
+			t.Fatal("bucket should not be empty")
+		}
+		seen[batch.Bucket] = true
+	}
+
+	if seen[resolver.SearchBucketExternal] {
+		t.Fatal("did not expect external bucket without OpenSubsonic config")
+	}
+	if !seen[resolver.SearchBucketYouTube] {
+		t.Fatal("expected youtube bucket")
+	}
+	if !seen[resolver.SearchBucketYTMusic] {
+		t.Fatal("expected ytmusic bucket")
 	}
 }
 
@@ -506,5 +547,94 @@ func TestNew(t *testing.T) {
 		t.Error("Broadcaster not initialized")
 	} else if s.server == nil {
 		t.Error("Server not initialized")
+	}
+}
+
+func setupSearchServer(t *testing.T, withLibrary bool) *Server {
+	t.Helper()
+
+	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
+	cacheDir := t.TempDir()
+	binDir := t.TempDir()
+	cfg := &bootstrap.Config{
+		CacheDir:   cacheDir,
+		BinDir:     binDir,
+		UvBinDir:   t.TempDir(),
+		MpvSocket:  filepath.Join(t.TempDir(), "mpv.sock"),
+		ConfigPath: filepath.Join(t.TempDir(), "config.json"),
+	}
+
+	if withLibrary {
+		subsonicServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			_, _ = w.Write([]byte(`{"subsonic-response":{"status":"ok","searchResult3":{"song":[{"id":"lib-1","title":"Library Song","artist":"Library Artist","duration":180}]}}}`))
+		}))
+		t.Cleanup(subsonicServer.Close)
+		if err := os.WriteFile(cfg.ConfigPath, []byte(`{
+  "opensubsonic": {
+    "enabled": true,
+    "library_id": "personal",
+    "base_url": "`+subsonicServer.URL+`",
+    "username": "alice",
+    "token": "secret"
+  }
+}`), 0o644); err != nil {
+			t.Fatalf("WriteFile failed: %v", err)
+		}
+	}
+
+	writeExecutable(t, cfg.ShimPath(), `#!/bin/sh
+last=""
+for arg in "$@"; do
+  last="$arg"
+done
+case "$last" in
+  ytsearch8:*)
+    printf '%s\n' '{"id":"shared-1","title":"Test Song","uploader":"Loose Channel","webpage_url":"https://www.youtube.com/watch?v=shared-1","ie_key":"Youtube"}'
+    ;;
+  https://music.youtube.com/search\?q=*)
+    sleep 0.05
+    printf '%s\n' '{"id":"shared-1","title":"Test Song","artist":"Precise Artist","duration":201,"thumbnail":"https://img.example/shared-1.jpg","webpage_url":"https://music.youtube.com/watch?v=shared-1","ie_key":"Youtube"}'
+    printf '%s\n' '{"id":"music-only-2","title":"Other Song","artist":"Other Artist","duration":202,"thumbnail":"https://img.example/music-only-2.jpg","webpage_url":"https://music.youtube.com/watch?v=music-only-2","ie_key":"Youtube"}'
+    ;;
+esac
+`)
+
+	p := player.NewManager(cfg, logger)
+	r, err := resolver.New(cfg)
+	if err != nil {
+		t.Fatalf("resolver.New failed: %v", err)
+	}
+	return New(logger, p, r, []byte("<html>Test</html>"), 0)
+}
+
+func decodeSearchBatches(t *testing.T, body string) []resolver.SearchBatch {
+	t.Helper()
+
+	var batches []resolver.SearchBatch
+	scanner := bufio.NewScanner(strings.NewReader(body))
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" {
+			continue
+		}
+		var batch resolver.SearchBatch
+		if err := json.Unmarshal([]byte(line), &batch); err != nil {
+			t.Fatalf("Unmarshal failed: %v", err)
+		}
+		batches = append(batches, batch)
+	}
+	if err := scanner.Err(); err != nil {
+		t.Fatalf("Scanner failed: %v", err)
+	}
+	return batches
+}
+
+func writeExecutable(t *testing.T, path string, body string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("MkdirAll failed: %v", err)
+	}
+	if err := os.WriteFile(path, []byte(body), 0o755); err != nil {
+		t.Fatalf("WriteFile failed: %v", err)
 	}
 }

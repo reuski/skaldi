@@ -62,10 +62,7 @@ func (s *Server) handleQueue(w http.ResponseWriter, r *http.Request) {
 	count := 0
 	queuedTracks := make([]resolver.Track, 0, len(tracks))
 	for _, track := range tracks {
-		urlToQueue := track.URL
-		if urlToQueue == "" {
-			urlToQueue = track.WebpageURL
-		}
+		urlToQueue := track.PlayableURL()
 		if urlToQueue == "" {
 			continue
 		}
@@ -94,17 +91,17 @@ func (s *Server) handleQueue(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 	query := r.URL.Query().Get("q")
-	mode := r.URL.Query().Get("mode")
+	intent, err := resolver.ParseSearchIntent(r.URL.Query().Get("intent"))
 	if query == "" {
 		http.Error(w, "Query is required", http.StatusBadRequest)
 		return
 	}
-	if mode != "typeahead" && mode != "full" {
-		http.Error(w, "mode must be typeahead or full", http.StatusBadRequest)
+	if err != nil {
+		http.Error(w, "intent must be typeahead or results", http.StatusBadRequest)
 		return
 	}
 
-	resultCh, err := s.resolver.Search(r.Context(), query, 5, mode)
+	resultCh, err := s.resolver.Search(r.Context(), query, intent)
 	if err != nil {
 		if r.Context().Err() != nil {
 			return

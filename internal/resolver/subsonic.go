@@ -141,13 +141,13 @@ func (c *SubsonicClient) songToTrack(song subsonicSong) Track {
 	}
 	opaque := BuildSubsonicURI(c.cfg.LibraryID, song.ID)
 	return Track{
+		ID:         song.ID,
 		Title:      song.Title,
 		Artist:     artist,
 		Duration:   float64(song.Duration),
 		Uploader:   artist,
 		URL:        opaque,
 		WebpageURL: opaque,
-		IsMusic:    true,
 		Source:     SourceSubsonic,
 	}
 }
