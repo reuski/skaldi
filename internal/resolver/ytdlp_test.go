@@ -390,7 +390,7 @@ for arg in "$@"; do
   last="$arg"
 done
 case "$last" in
-  ytsearch8:*)
+  ytsearch12:*)
     printf '%s\n' '{"id":"shared-1","title":"Test Song","uploader":"Loose Channel","webpage_url":"https://www.youtube.com/watch?v=shared-1","ie_key":"Youtube"}'
     ;;
   https://music.youtube.com/search\?q=*)

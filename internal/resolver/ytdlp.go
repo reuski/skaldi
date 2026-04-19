@@ -31,9 +31,9 @@ const (
 	SourceYouTube  = "youtube"
 
 	typeaheadTrackLimit   = 4
-	resultsTrackLimit     = 5
-	providerSearchLimit   = 8
-	maxSuggestionCount    = 6
+	resultsTrackLimit     = 8
+	providerSearchLimit   = 12
+	maxSuggestionCount    = 8
 	minRemoteQueryRunes   = 2
 	searchCacheLimit      = 64
 	suggestionCacheTTL    = 5 * time.Minute

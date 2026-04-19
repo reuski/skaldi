@@ -778,6 +778,10 @@
         padding-left: 8px;
       }
 
+      .suggest-text.typeahead-track .queued-indicator {
+        margin-left: 8px;
+      }
+
       .suggest-text.typeahead-track .badge {
         flex-shrink: 0;
       }
@@ -789,6 +793,12 @@
       .suggest-text.active {
         background: var(--surface-hover);
         border-left: 2px solid var(--primary);
+        padding-left: 14px;
+      }
+
+      .suggest-text.queued {
+        background: rgba(212, 175, 55, 0.08);
+        border-left: 2px solid rgba(212, 175, 55, 0.75);
         padding-left: 14px;
       }
 
@@ -811,6 +821,39 @@
         background: var(--surface-hover);
         border-left: 2px solid var(--primary);
         padding-left: 14px;
+      }
+
+      .suggestion-item.queued {
+        background: rgba(212, 175, 55, 0.08);
+        border-left: 2px solid rgba(212, 175, 55, 0.75);
+        padding-left: 14px;
+      }
+
+      .suggest-text.active.queued,
+      .suggestion-item.active.queued {
+        border-left-color: var(--primary);
+      }
+
+      .queued-indicator {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 18px;
+        height: 18px;
+        border-radius: 999px;
+        flex-shrink: 0;
+        color: var(--primary);
+        background: rgba(212, 175, 55, 0.12);
+        border: 1px solid rgba(212, 175, 55, 0.28);
+      }
+
+      .queued-indicator svg {
+        width: 11px;
+        height: 11px;
+      }
+
+      .suggestion-item .queued-indicator {
+        margin-left: 8px;
       }
 
       .sug-thumb {
@@ -1325,6 +1368,28 @@
         return "";
       }
 
+      function searchHitDataAttrs(hit) {
+        return (
+          ' data-hit-id="' +
+          escAttr(hit.id) +
+          '" data-hit-source="' +
+          escAttr(hit.source) +
+          '" data-hit-title="' +
+          escAttr(hit.title) +
+          '" data-hit-artist="' +
+          escAttr(hit.artist) +
+          '" data-hit-duration="' +
+          escAttr(hit.duration) +
+          '" data-hit-thumbnail="' +
+          escAttr(hit.thumbnail) +
+          '" data-hit-webpage-url="' +
+          escAttr(hit.webpage_url) +
+          '" data-queue-url="' +
+          escAttr(hit.queue_url) +
+          '"'
+        );
+      }
+
       function renderTextSuggestionHTML(text) {
         const key = "suggestion:" + normalizeSearchQuery(text);
         return (
@@ -1338,17 +1403,77 @@
         );
       }
 
+      function normalizeQueueRef(value) {
+        return String(value || "").trim();
+      }
+
+      function searchQueueKeyForHit(hit) {
+        if (!hit) return "";
+        if (hit.source === "subsonic") {
+          if (hit.id) return "subsonic:id:" + hit.id;
+          return "subsonic:url:" + normalizeQueueRef(hit.webpage_url || hit.queue_url);
+        }
+        if (hit.id) return "video:id:" + hit.id;
+        return "video:url:" + normalizeQueueRef(hit.webpage_url || hit.queue_url);
+      }
+
+      function searchQueueKeyForItem(item) {
+        if (!item) return "";
+        const meta = item.metadata || {};
+        if (meta.source === "subsonic") {
+          if (meta.id) return "subsonic:id:" + meta.id;
+          return "subsonic:url:" + normalizeQueueRef(meta.webpage_url || item.filename);
+        }
+        if (meta.id) return "video:id:" + meta.id;
+        return "video:url:" + normalizeQueueRef(meta.webpage_url || item.filename);
+      }
+
+      function queuedSearchKeys() {
+        const keys = new Set();
+        const queue = (lastData && lastData.queue) || [];
+        for (const item of queue) {
+          const key = searchQueueKeyForItem(item);
+          if (key) keys.add(key);
+        }
+        for (const item of pendingItems) {
+          if (item.status !== "error" && item.queueKey) {
+            keys.add(item.queueKey);
+          }
+        }
+        return keys;
+      }
+
+      function isSearchHitQueued(hit) {
+        const key = searchQueueKeyForHit(hit);
+        return !!key && queuedSearchKeys().has(key);
+      }
+
+      function renderQueuedIndicatorHTML(isQueued) {
+        if (!isQueued) return "";
+        return (
+          '<span class="queued-indicator" title="Already in playlist" aria-hidden="true">' +
+          '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">' +
+          '<path d="M20 6 9 17l-5-5" />' +
+          "</svg>" +
+          "</span>"
+        );
+      }
+
       function renderTypeaheadHitHTML(hit) {
         const title = escHTML(hit.title || "");
         const artist = escHTML(hit.artist || "");
         const line = (artist ? artist + " - " : "") + title;
         const key = "queue:" + hit.queue_url;
+        const isQueued = isSearchHitQueued(hit);
+        const queuedClass = isQueued ? " queued" : "";
         return (
-          '<div class="suggest-text typeahead-track" data-search-option="true" data-search-key="' +
+          '<div class="suggest-text typeahead-track' +
+          queuedClass +
+          '" data-search-option="true" data-search-key="' +
           escAttr(key) +
-          '" data-kind="hit" data-queue-url="' +
-          escAttr(hit.queue_url) +
-          '">' +
+          '" data-kind="hit"' +
+          searchHitDataAttrs(hit) +
+          ">" +
           renderSourceBadge(hit.source) +
           '<span class="typeahead-track-line">' +
           line +
@@ -1356,6 +1481,7 @@
           '<span class="duration">' +
           searchHitDuration(hit) +
           "</span>" +
+          renderQueuedIndicatorHTML(isQueued) +
           "</div>"
         );
       }
@@ -1364,12 +1490,16 @@
         const title = escHTML(hit.title);
         const artist = escHTML(hit.artist);
         const key = "queue:" + hit.queue_url;
+        const isQueued = isSearchHitQueued(hit);
+        const queuedClass = isQueued ? " queued" : "";
         return (
-          '<div class="suggestion-item" data-search-option="true" data-search-key="' +
+          '<div class="suggestion-item' +
+          queuedClass +
+          '" data-search-option="true" data-search-key="' +
           escAttr(key) +
-          '" data-kind="hit" data-queue-url="' +
-          escAttr(hit.queue_url) +
-          '">' +
+          '" data-kind="hit"' +
+          searchHitDataAttrs(hit) +
+          ">" +
           '<img src="' +
           searchHitThumb(hit) +
           '" class="sug-thumb" loading="lazy">' +
@@ -1385,8 +1515,24 @@
           '<div class="duration">' +
           searchHitDuration(hit) +
           "</div>" +
+          renderQueuedIndicatorHTML(isQueued) +
           "</div>"
         );
+      }
+
+      function hitFromOption(option) {
+        if (!option || option.dataset.kind !== "hit") return null;
+        const duration = Number(option.dataset.hitDuration);
+        return {
+          id: option.dataset.hitId || "",
+          source: option.dataset.hitSource || "",
+          title: option.dataset.hitTitle || "",
+          artist: option.dataset.hitArtist || "",
+          duration: Number.isFinite(duration) ? duration : 0,
+          thumbnail: option.dataset.hitThumbnail || "",
+          webpage_url: option.dataset.hitWebpageUrl || "",
+          queue_url: option.dataset.queueUrl || "",
+        };
       }
 
       function bucketLabel(bucket) {
@@ -1680,11 +1826,18 @@
           return;
         }
 
-        const queueURL = option.dataset.queueUrl;
-        if (queueURL) {
-          addToQueue(queueURL);
-          closeSuggestions({ preserveInput: false });
+        const hit = hitFromOption(option);
+        if (!hit || !hit.queue_url) return;
+
+        currentFocusKey = option.dataset.searchKey || currentFocusKey;
+        syncSuggestionAccessibility();
+        if (searchState.intent === "results") {
+          void addSearchHitToQueue(hit);
+          return;
         }
+
+        void addToQueue(hit.queue_url);
+        closeSuggestions({ preserveInput: false });
       });
 
       document.addEventListener("click", (e) => {
@@ -1921,7 +2074,9 @@
             ? label
             : p.type === "upload"
               ? "Uploading..."
-              : "Resolving...";
+              : p.type === "search"
+                ? "Adding..."
+                : "Resolving...";
         const cls = "pending" + (p.status === "error" ? " error" : "");
         return (
           '<li class="queue-item ' +
@@ -2079,6 +2234,9 @@
         if (hasPendingChange) {
           prev.queueKey = qk;
           renderQueue(data);
+          if (searchState.intent) {
+            scheduleSearchRender();
+          }
         }
 
         const nk = makeNpKey(data);
@@ -2486,17 +2644,19 @@
         }
       }
 
-      function addPending(label, type) {
+      function addPending(label, type, extra) {
         const id = ++pendingId;
-        const item = { id, label, type, status: "loading" };
+        const item = { id, label, type, status: "loading", ...(extra || {}) };
         pendingItems.push(item);
         if (lastData) renderQueue(lastData);
+        scheduleSearchRender();
         return id;
       }
 
       function removePending(id) {
         pendingItems = pendingItems.filter((p) => p.id !== id);
         if (lastData) renderQueue(lastData);
+        scheduleSearchRender();
       }
 
       function failPending(id, msg) {
@@ -2505,6 +2665,7 @@
           item.status = "error";
           item.label = msg || "Failed";
           if (lastData) renderQueue(lastData);
+          scheduleSearchRender();
           setTimeout(() => removePending(id), 3000);
         }
       }
@@ -2518,6 +2679,25 @@
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ url }),
+          });
+          if (!res.ok) throw new Error(await res.text());
+          removePending(pid);
+        } catch (err) {
+          failPending(pid, err.message || "Failed to add");
+        }
+      }
+
+      async function addSearchHitToQueue(hit) {
+        urlInput.focus({ preventScroll: true });
+        const label = hit.title || hit.artist || extractLabel(hit.queue_url);
+        const pid = addPending(label, "search", {
+          queueKey: searchQueueKeyForHit(hit),
+        });
+        try {
+          const res = await fetch("/queue", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ hits: [hit] }),
           });
           if (!res.ok) throw new Error(await res.text());
           removePending(pid);

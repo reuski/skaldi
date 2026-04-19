@@ -3,6 +3,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -16,7 +17,8 @@ import (
 )
 
 type QueueRequest struct {
-	URL string `json:"url"`
+	URL  string               `json:"url,omitempty"`
+	Hits []resolver.SearchHit `json:"hits,omitempty"`
 }
 
 type PlaybackRequest struct {
@@ -47,19 +49,113 @@ func (s *Server) handleQueue(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if req.URL == "" {
-		http.Error(w, "URL is required", http.StatusBadRequest)
+	switch {
+	case req.URL == "" && len(req.Hits) == 0:
+		http.Error(w, "URL or hits are required", http.StatusBadRequest)
+		return
+	case req.URL != "" && len(req.Hits) > 0:
+		http.Error(w, "Provide either url or hits", http.StatusBadRequest)
 		return
 	}
 
-	tracks, err := s.resolver.Resolve(r.Context(), req.URL)
+	var (
+		tracks   []resolver.Track
+		err      error
+		rejected int
+	)
+
+	if req.URL != "" {
+		tracks, err = s.resolver.Resolve(r.Context(), req.URL)
+		if err != nil {
+			s.logger.Error("Failed to resolve URL", "url", req.URL, "error", err)
+			http.Error(w, fmt.Sprintf("Failed to resolve URL: %v", err), http.StatusInternalServerError)
+			return
+		}
+	} else {
+		tracks = make([]resolver.Track, 0, len(req.Hits))
+		for _, hit := range req.Hits {
+			resolvedTracks, resolveErr := s.resolveQueueHit(r.Context(), hit)
+			if resolveErr != nil {
+				rejected++
+				s.logger.Error("Failed to queue search hit", "source", hit.Source, "queue_url", hit.QueueURL, "error", resolveErr)
+				continue
+			}
+			tracks = append(tracks, resolvedTracks...)
+		}
+		if len(tracks) == 0 {
+			http.Error(w, "No tracks could be queued", http.StatusBadRequest)
+			return
+		}
+	}
+
+	queuedTracks := s.queueTracks(tracks)
+	if len(queuedTracks) == 0 {
+		http.Error(w, "Failed to enqueue tracks", http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusAccepted)
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"status":   "queued",
+		"count":    len(queuedTracks),
+		"rejected": rejected,
+		"tracks":   queuedTracks,
+	})
+}
+
+func (s *Server) resolveQueueHit(ctx context.Context, hit resolver.SearchHit) ([]resolver.Track, error) {
+	if hit.Source == resolver.SourceSubsonic {
+		return s.resolver.Resolve(ctx, hit.QueueURL)
+	}
+
+	track, err := queueTrackFromHit(hit)
 	if err != nil {
-		s.logger.Error("Failed to resolve URL", "url", req.URL, "error", err)
-		http.Error(w, fmt.Sprintf("Failed to resolve URL: %v", err), http.StatusInternalServerError)
-		return
+		return nil, err
+	}
+	return []resolver.Track{track}, nil
+}
+
+func queueTrackFromHit(hit resolver.SearchHit) (resolver.Track, error) {
+	if hit.QueueURL == "" {
+		return resolver.Track{}, fmt.Errorf("queue_url is required")
 	}
 
-	count := 0
+	webpageURL := hit.WebpageURL
+	if webpageURL == "" {
+		webpageURL = hit.QueueURL
+	}
+
+	switch hit.Source {
+	case resolver.SourceYouTube, resolver.SourceYTMusic:
+		return resolver.Track{
+			ID:         hit.ID,
+			Title:      hit.Title,
+			Artist:     hit.Artist,
+			Duration:   hit.Duration,
+			Uploader:   hit.Artist,
+			Thumbnail:  hit.Thumbnail,
+			URL:        hit.QueueURL,
+			WebpageURL: webpageURL,
+			Source:     hit.Source,
+		}, nil
+	case resolver.SourceSubsonic:
+		return resolver.Track{
+			ID:         hit.ID,
+			Title:      hit.Title,
+			Artist:     hit.Artist,
+			Duration:   hit.Duration,
+			Uploader:   hit.Artist,
+			Thumbnail:  hit.Thumbnail,
+			URL:        hit.QueueURL,
+			WebpageURL: webpageURL,
+			Source:     hit.Source,
+		}, nil
+	default:
+		return resolver.Track{}, fmt.Errorf("unsupported search hit source: %s", hit.Source)
+	}
+}
+
+func (s *Server) queueTracks(tracks []resolver.Track) []resolver.Track {
 	queuedTracks := make([]resolver.Track, 0, len(tracks))
 	for _, track := range tracks {
 		urlToQueue := track.PlayableURL()
@@ -73,20 +169,14 @@ func (s *Server) handleQueue(w http.ResponseWriter, r *http.Request) {
 			s.logger.Error("Failed to enqueue track", "url", urlToQueue, "error", err)
 			continue
 		}
+
 		safeTrack := track
 		if _, ok := resolver.ParseSubsonicURI(track.WebpageURL); ok {
 			safeTrack.URL = track.WebpageURL
 		}
 		queuedTracks = append(queuedTracks, safeTrack)
-		count++
 	}
-
-	w.WriteHeader(http.StatusAccepted)
-	_ = json.NewEncoder(w).Encode(map[string]any{
-		"status": "queued",
-		"count":  count,
-		"tracks": queuedTracks,
-	})
+	return queuedTracks
 }
 
 func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {

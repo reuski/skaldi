@@ -230,6 +230,11 @@ func TestHandleQueue_InvalidMethod(t *testing.T) {
 			body: `{"other": "value"}`,
 			want: http.StatusBadRequest,
 		},
+		{
+			name: "url_and_hits",
+			body: `{"url": "https://example.com", "hits": [{"source":"youtube","queue_url":"https://www.youtube.com/watch?v=1"}]}`,
+			want: http.StatusBadRequest,
+		},
 	}
 
 	for _, tc := range tests {
@@ -243,6 +248,40 @@ func TestHandleQueue_InvalidMethod(t *testing.T) {
 				t.Errorf("Status = %d, want %d", rr.Code, tc.want)
 			}
 		})
+	}
+}
+
+func TestQueueTrackFromHit(t *testing.T) {
+	hit := resolver.SearchHit{
+		ID:         "vid-1",
+		Source:     resolver.SourceYouTube,
+		Title:      "Song",
+		Artist:     "Artist",
+		Duration:   123,
+		Thumbnail:  "https://img.example/vid-1.jpg",
+		WebpageURL: "https://www.youtube.com/watch?v=vid-1",
+		QueueURL:   "https://www.youtube.com/watch?v=vid-1",
+	}
+
+	track, err := queueTrackFromHit(hit)
+	if err != nil {
+		t.Fatalf("queueTrackFromHit failed: %v", err)
+	}
+	if track.Source != resolver.SourceYouTube {
+		t.Fatalf("source = %q, want %q", track.Source, resolver.SourceYouTube)
+	}
+	if track.WebpageURL != hit.WebpageURL {
+		t.Fatalf("webpage_url = %q, want %q", track.WebpageURL, hit.WebpageURL)
+	}
+	if track.Uploader != hit.Artist {
+		t.Fatalf("uploader = %q, want %q", track.Uploader, hit.Artist)
+	}
+}
+
+func TestQueueTrackFromHit_InvalidSource(t *testing.T) {
+	_, err := queueTrackFromHit(resolver.SearchHit{Source: "unsupported", QueueURL: "https://example.com"})
+	if err == nil {
+		t.Fatal("expected unsupported source error")
 	}
 }
 
