@@ -221,7 +221,7 @@ func (s *State) SetPlaylist(entries []MpvPlaylistEntry) {
 	s.mu.Unlock()
 }
 
-func (s *State) SetPlaylistPos(pos int) bool {
+func (s *State) SetPlaylistPos(pos int) *QueueItem {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -229,7 +229,7 @@ func (s *State) SetPlaylistPos(pos int) bool {
 		if s.currentItem == nil {
 			s.currentItem = s.playlistItemLocked(pos)
 		}
-		return false
+		return s.copyCurrentItemLocked()
 	}
 
 	if s.currentItem != nil {
@@ -239,7 +239,15 @@ func (s *State) SetPlaylistPos(pos int) bool {
 	s.playlistPos = pos
 	s.currentItem = s.playlistItemLocked(pos)
 	s.version++
-	return true
+	return s.copyCurrentItemLocked()
+}
+
+func (s *State) copyCurrentItemLocked() *QueueItem {
+	if s.currentItem == nil {
+		return nil
+	}
+	cp := *s.currentItem
+	return &cp
 }
 
 func (s *State) PruneMetadata() {

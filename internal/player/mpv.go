@@ -101,10 +101,76 @@ func (m *Manager) StartMetadataGC(ctx context.Context) {
 	}()
 }
 
+const dailyClearRetry = 30 * time.Second
+
+func (m *Manager) StartDailyPlaylistClear(ctx context.Context) {
+	go func() {
+		var lastDate string
+		pendingClear := false
+
+		for {
+			now := time.Now()
+			today := now.Local().Format("2006-01-02")
+
+			if lastDate != "" && lastDate != today {
+				pendingClear = true
+			}
+			lastDate = today
+
+			var wait time.Duration
+			if pendingClear {
+				if m.clearIfIdle() {
+					pendingClear = false
+					wait = time.Until(time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location()).AddDate(0, 0, 1))
+				} else {
+					wait = dailyClearRetry
+				}
+			} else {
+				wait = time.Until(time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location()).AddDate(0, 0, 1))
+			}
+
+			if wait < time.Second {
+				wait = time.Second
+			}
+
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(wait):
+			}
+		}
+	}()
+}
+
+func (m *Manager) clearIfIdle() bool {
+	snap := m.State.Snapshot()
+
+	if snap.Status != StatusIdle {
+		m.logger.Debug("Skipping daily playlist clear: still playing")
+		return false
+	}
+
+	if len(snap.Upcoming) > 0 || snap.NowPlaying != nil {
+		m.logger.Debug("Skipping daily playlist clear: upcoming tracks remain")
+		return false
+	}
+
+	m.logger.Debug("Clearing daily playlist (idle, empty queue)")
+	if _, err := m.ipc.Exec("playlist-clear"); err != nil {
+		m.logger.Error("Failed to clear playlist for daily reset", "error", err)
+	}
+	m.State.mu.Lock()
+	m.State.recentPlayed = nil
+	m.State.currentItem = nil
+	m.State.mu.Unlock()
+	return true
+}
+
 func (m *Manager) Run(ctx context.Context) error {
 	defer m.CleanupTempFiles()
 	m.StartEventLoop(ctx)
 	m.StartMetadataGC(ctx)
+	m.StartDailyPlaylistClear(ctx)
 
 	for {
 		if err := ctx.Err(); err != nil {
@@ -229,31 +295,6 @@ func (m *Manager) Exec(args ...any) (any, error) {
 }
 
 func (m *Manager) PlayIndex(targetIdx int) error {
-	result, err := m.ipc.Exec("get_property", "playlist-pos")
-	if err != nil {
-		return fmt.Errorf("failed to get playlist position: %w", err)
-	}
-
-	currentIdx := -1
-	switch v := result.(type) {
-	case float64:
-		currentIdx = int(v)
-	case int:
-		currentIdx = v
-	}
-
-	if currentIdx < 0 || targetIdx <= currentIdx {
-		_, err = m.ipc.Exec("playlist-play-index", targetIdx)
-		return err
-	}
-
-	for i := currentIdx + 1; i < targetIdx; i++ {
-		_, err = m.ipc.Exec("playlist-move", currentIdx+1, -1)
-		if err != nil {
-			return fmt.Errorf("failed to move item %d: %w", i, err)
-		}
-	}
-
-	_, err = m.ipc.Exec("playlist-play-index", currentIdx+1)
+	_, err := m.ipc.Exec("playlist-play-index", targetIdx)
 	return err
 }

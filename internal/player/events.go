@@ -149,18 +149,12 @@ func (m *Manager) handlePlaylistPos(data interface{}) bool {
 		idx = int(val)
 	}
 
-	if !m.State.SetPlaylistPos(idx) {
-		return false
+	item := m.State.SetPlaylistPos(idx)
+	if item == nil {
+		return idx >= 0
 	}
 
 	if idx < 0 {
-		return true
-	}
-
-	m.State.mu.RLock()
-	item := m.State.currentItem
-	m.State.mu.RUnlock()
-	if item == nil {
 		return true
 	}
 

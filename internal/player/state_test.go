@@ -129,38 +129,61 @@ func TestState_SetPlaylist(t *testing.T) {
 
 func TestState_SetPlaylistPos(t *testing.T) {
 	s := NewState()
+	s.SetPlaylist([]MpvPlaylistEntry{
+		{Filename: "track1.mp3", ID: 1},
+		{Filename: "track2.mp3", ID: 2},
+		{Filename: "track3.mp3", ID: 3},
+	})
 	s.timePos = 100.0
 	s.duration = 200.0
 
-	s.SetPlaylistPos(2)
+	item := s.SetPlaylistPos(2)
 
 	if s.playlistPos != 2 {
 		t.Errorf("playlistPos = %d, want 2", s.playlistPos)
 	}
-
 	if s.timePos != 100.0 {
 		t.Errorf("timePos should be preserved, got %f", s.timePos)
 	}
-
 	if s.duration != 200.0 {
 		t.Errorf("duration should be preserved, got %f", s.duration)
 	}
+	if item == nil {
+		t.Error("expected non-nil currentItem")
+	}
 }
 
-func TestState_SetPlaylistPos_SamePos(t *testing.T) {
+func TestState_SetPlaylistPos_SamePos_ReturnsNilWhenEmpty(t *testing.T) {
 	s := NewState()
-	s.playlistPos = 2
 	s.timePos = 100.0
 	s.duration = 200.0
 
-	s.SetPlaylistPos(2)
+	item := s.SetPlaylistPos(2)
 
 	if s.timePos != 100.0 {
 		t.Errorf("timePos should remain 100.0 when pos unchanged, got %f", s.timePos)
 	}
-
 	if s.duration != 200.0 {
 		t.Errorf("duration should remain 200.0 when pos unchanged, got %f", s.duration)
+	}
+	if item != nil {
+		t.Error("expected nil currentItem for empty playlist at position")
+	}
+}
+
+func TestState_SetPlaylistPos_SamePos_ReturnsCurrentItem(t *testing.T) {
+	s := NewState()
+	s.SetPlaylist([]MpvPlaylistEntry{
+		{Filename: "track1.mp3", ID: 1},
+	})
+	s.SetPlaylistPos(0)
+
+	item := s.SetPlaylistPos(0)
+	if item == nil {
+		t.Fatal("expected non-nil currentItem on same position")
+	}
+	if item.Index != 0 {
+		t.Errorf("Index = %d, want 0", item.Index)
 	}
 }
 
