@@ -250,6 +250,14 @@ func (s *State) copyCurrentItemLocked() *QueueItem {
 	return &cp
 }
 
+func (s *State) ResetPlayed() {
+	s.mu.Lock()
+	s.recentPlayed = nil
+	s.currentItem = nil
+	s.version++
+	s.mu.Unlock()
+}
+
 func (s *State) PruneMetadata() {
 	s.PruneMetadataBefore(time.Time{})
 }

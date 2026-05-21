@@ -101,68 +101,49 @@ func (m *Manager) StartMetadataGC(ctx context.Context) {
 	}()
 }
 
-const dailyClearRetry = 30 * time.Second
+const rotateRetry = 30 * time.Second
 
-func (m *Manager) StartDailyPlaylistClear(ctx context.Context) {
+func (m *Manager) StartDailyRotation(ctx context.Context) {
 	go func() {
-		var lastDate string
-		pendingClear := false
-
 		for {
-			now := time.Now()
-			today := now.Local().Format("2006-01-02")
-
-			if lastDate != "" && lastDate != today {
-				pendingClear = true
-			}
-			lastDate = today
-
-			var wait time.Duration
-			if pendingClear {
-				if m.clearIfIdle() {
-					pendingClear = false
-					wait = time.Until(time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location()).AddDate(0, 0, 1))
-				} else {
-					wait = dailyClearRetry
-				}
-			} else {
-				wait = time.Until(time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location()).AddDate(0, 0, 1))
-			}
-
-			if wait < time.Second {
-				wait = time.Second
-			}
-
-			select {
-			case <-ctx.Done():
+			if !sleep(ctx, untilNextMidnight(time.Now())) {
 				return
-			case <-time.After(wait):
+			}
+			for !m.rotateIfIdle() {
+				if !sleep(ctx, rotateRetry) {
+					return
+				}
 			}
 		}
 	}()
 }
 
-func (m *Manager) clearIfIdle() bool {
-	snap := m.State.Snapshot()
+func untilNextMidnight(now time.Time) time.Duration {
+	t := now.Local()
+	next := time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, t.Location()).AddDate(0, 0, 1)
+	return time.Until(next)
+}
 
-	if snap.Status != StatusIdle {
-		m.logger.Debug("Skipping daily playlist clear: still playing")
+func sleep(ctx context.Context, d time.Duration) bool {
+	select {
+	case <-ctx.Done():
+		return false
+	case <-time.After(d):
+		return true
+	}
+}
+
+func (m *Manager) rotateIfIdle() bool {
+	if m.State.Snapshot().Status != StatusIdle {
 		return false
 	}
 
-	if len(snap.Upcoming) > 0 || snap.NowPlaying != nil {
-		m.logger.Debug("Skipping daily playlist clear: upcoming tracks remain")
-		return false
-	}
-
-	m.logger.Debug("Clearing daily playlist (idle, empty queue)")
+	m.logger.Debug("Rotating session: clearing playlist and history")
 	if _, err := m.ipc.Exec("playlist-clear"); err != nil {
-		m.logger.Error("Failed to clear playlist for daily reset", "error", err)
+		m.logger.Error("Failed to clear playlist", "error", err)
 	}
-	m.State.mu.Lock()
-	m.State.recentPlayed = nil
-	m.State.currentItem = nil
-	m.State.mu.Unlock()
+	m.State.ResetPlayed()
+	m.history.Rotate("daily")
 	return true
 }
 
@@ -170,7 +151,7 @@ func (m *Manager) Run(ctx context.Context) error {
 	defer m.CleanupTempFiles()
 	m.StartEventLoop(ctx)
 	m.StartMetadataGC(ctx)
-	m.StartDailyPlaylistClear(ctx)
+	m.StartDailyRotation(ctx)
 
 	for {
 		if err := ctx.Err(); err != nil {

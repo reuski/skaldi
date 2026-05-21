@@ -158,22 +158,23 @@ func (m *Manager) handlePlaylistPos(data interface{}) bool {
 		return true
 	}
 
-	histEntry := history.Entry{
-		Timestamp: time.Now(),
-		Title:     item.Title,
+	entry := history.Entry{
+		Time:     time.Now(),
+		Title:    item.Title,
+		Duration: item.Duration,
 	}
 	if item.Metadata != nil {
-		histEntry.Artist = item.Metadata.Artist
-		histEntry.SourceURL = item.Metadata.WebpageURL
-		if histEntry.SourceURL == "" {
-			histEntry.SourceURL = item.Metadata.URL
+		entry.Artist = item.Metadata.Artist
+		entry.URL = item.Metadata.WebpageURL
+		if entry.URL == "" {
+			entry.URL = item.Metadata.URL
 		}
 	}
-	if histEntry.Title == "" {
-		histEntry.Title = item.Filename
+	if entry.Title == "" {
+		entry.Title = item.Filename
 	}
-	if histEntry.Title != "" || histEntry.SourceURL != "" {
-		m.history.Log(histEntry)
+	if entry.Title != "" || entry.URL != "" {
+		m.history.Log(entry)
 	}
 	return true
 }
