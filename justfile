@@ -37,10 +37,8 @@ release-build-current:
 
 release-build-legacy-darwin:
 	mkdir -p dist
-	for pair in darwin/amd64 darwin/arm64; do \
-	  GOOS=${pair%/*} GOARCH=${pair#*/} \
-	  GOTOOLCHAIN={{legacy_darwin_go_toolchain}} go build -modfile=go.legacy.mod -o dist/skaldi-${pair%/*}-${pair#*/}-macos11 ./cmd/skaldi; \
-	done
+	GOOS=darwin GOARCH=amd64 GOTOOLCHAIN={{legacy_darwin_go_toolchain}} \
+	  go build -modfile=go.legacy.mod -o dist/skaldi-darwin-amd64-macos11 ./cmd/skaldi
 
 clean:
 	go clean
