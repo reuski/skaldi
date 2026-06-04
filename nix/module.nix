@@ -1,4 +1,3 @@
-# SPDX-License-Identifier: AGPL-3.0-or-later
 self:
 { config, lib, pkgs, ... }:
 let
@@ -67,8 +66,8 @@ in
 
       environment = {
         SKALDI_CONFIG = builtins.toString configFile;
-        XDG_CACHE_HOME = "%C"; # /var/cache  -> cache/skaldi
-        XDG_DATA_HOME = "%S"; # /var/lib    -> lib/skaldi/history
+        XDG_CACHE_HOME = "%C";
+        XDG_DATA_HOME = "%S";
         HOME = "%S";
       };
 
@@ -82,12 +81,8 @@ in
         CacheDirectory = "skaldi";
         RuntimeDirectory = "skaldi";
 
-        # Audio: a headless server still needs an output device. ALSA access via
-        # the `audio` group covers the common case; PipeWire/Pulse setups may
-        # need extra wiring (see README).
         SupplementaryGroups = [ "audio" ];
 
-        # Hardening.
         NoNewPrivileges = true;
         ProtectSystem = "strict";
         ProtectHome = true;
@@ -101,7 +96,7 @@ in
         RestrictRealtime = true;
         RestrictSUIDSGID = true;
         LockPersonality = true;
-        MemoryDenyWriteExecute = false; # bun/yt-dlp JIT needs W^X relaxed.
+        MemoryDenyWriteExecute = false;
         RestrictAddressFamilies = [ "AF_UNIX" "AF_INET" "AF_INET6" "AF_NETLINK" ];
         SystemCallFilter = [ "@system-service" ];
         SystemCallErrorNumber = "EPERM";

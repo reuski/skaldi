@@ -1,4 +1,3 @@
-# SPDX-License-Identifier: AGPL-3.0-or-later
 {
   lib,
   buildGoModule,
@@ -24,7 +23,6 @@ buildGoModule {
     ];
   };
 
-  # Stdlib-only module: no third-party dependencies to vendor.
   vendorHash = null;
 
   subPackages = [ "cmd/skaldi" ];
@@ -32,9 +30,6 @@ buildGoModule {
 
   nativeBuildInputs = [ makeWrapper ];
 
-  # Make the binary self-contained: every external tool Skaldi shells out to is
-  # supplied from the store, and runtime provisioning (yt-dlp/bun downloads) is
-  # disabled by default. Users may still override SKALDI_PROVISION.
   postInstall = ''
     wrapProgram $out/bin/skaldi \
       --prefix PATH : ${lib.makeBinPath [ mpv ffmpeg yt-dlp bun avahi ]} \
