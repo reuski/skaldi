@@ -2,9 +2,9 @@
 
 ![CI](https://github.com/reuski/skaldi/actions/workflows/ci.yml/badge.svg) ![Release](https://img.shields.io/github/v/release/reuski/skaldi?style=flat-square) ![Go Report Card](https://goreportcard.com/badge/github.com/reuski/skaldi?style=flat-square)
 
-Skaldi is a self-hosted network jukebox: one Go binary, one embedded web UI, no external Go dependencies.
+Self-hosted network jukebox. One Go binary, one embedded web UI, zero external Go dependencies.
 
-It runs `mpv` locally, exposes a browser UI on your LAN, and provisions `uv`, `bun`, and `yt-dlp` into your cache directory on first run.
+Runs `mpv` locally, serves a browser UI on your LAN, and provisions standalone `yt-dlp` + `bun` binaries into `~/.cache/skaldi/` on first run. No Python or package manager required.
 
 ## Features
 
@@ -12,26 +12,18 @@ It runs `mpv` locally, exposes a browser UI on your LAN, and provisions `uv`, `b
 - Search YouTube and YouTube Music
 - Optional OpenSubsonic library search
 - Real-time state sync over SSE
-- Queue reordering, history, volume, and mute controls
-- mDNS advertising at `skaldi.local` when available
+- Queue reordering, history, volume, mute
+- mDNS advertising at `skaldi.local`
 
 ## Requirements
 
-- `mpv`
-- `ffmpeg`
+- `mpv`, `ffmpeg`
 - Go `1.26+` to build from source
 
-Install the system packages first:
-
 ```bash
-# macOS
-brew install mpv ffmpeg
-
-# Arch
-sudo pacman -S mpv ffmpeg avahi
-
-# Debian/Ubuntu
-sudo apt install mpv ffmpeg avahi-utils
+brew install mpv ffmpeg                  # macOS
+sudo pacman -S mpv ffmpeg avahi          # Arch
+sudo apt install mpv ffmpeg avahi-utils  # Debian/Ubuntu
 ```
 
 ## Quick Start
@@ -41,11 +33,52 @@ go build -o skaldi ./cmd/skaldi
 ./skaldi
 ```
 
-Skaldi listens on `http://localhost:8080` and also logs a LAN URL on startup. The first run needs network access to provision `uv`, `bun`, and `yt-dlp` under `~/.cache/skaldi/`.
+Listens on `http://localhost:8080` (LAN URL logged on startup). First run needs network access to provision `yt-dlp` + `bun`.
+
+## Configuration
+
+Env overrides config; config overrides defaults. Config at `$XDG_CONFIG_HOME/skaldi/config.json` (or `SKALDI_CONFIG`).
+
+| Setting | Env | `config.json` | Default |
+|---|---|---|---|
+| Listen port | `SKALDI_PORT` | `server.port` | `8080` |
+| Provision | `SKALDI_PROVISION=0` | `provision: false` | on |
+
+**Provisioning bypass** — set `SKALDI_PROVISION=0` and put `yt-dlp` + `bun` on `PATH` (alongside `mpv`, `ffmpeg`). Skaldi uses them directly and skips all downloads.
+
+## NixOS
+
+Flake ships a self-contained package and a NixOS module. The packaged binary is wrapped with `mpv`, `ffmpeg`, `yt-dlp`, `bun`, `avahi` from the store and runs with `SKALDI_PROVISION=0` — never downloads anything.
+
+```bash
+nix run github:reuski/skaldi
+```
+
+```nix
+{
+  inputs.skaldi.url = "github:reuski/skaldi";
+
+  # in your nixosConfiguration modules:
+  imports = [ skaldi.nixosModules.default ];
+
+  services.skaldi = {
+    enable = true;
+    openFirewall = true;
+    settings = {
+      server.port = 8080;
+      # opensubsonic = { enabled = true; library_id = "personal"; ... };
+    };
+  };
+
+  services.avahi.enable = true; # for skaldi.local
+}
+```
+
+Runs under a hardened `DynamicUser`, joined to the `audio` group for ALSA. PipeWire/PulseAudio may need extra wiring — override `systemd.services.skaldi.environment` (e.g. `PULSE_SERVER`) or `serviceConfig.SupplementaryGroups`.
 
 ## OpenSubsonic
 
-OpenSubsonic is optional. If you want it, create `~/.config/skaldi/config.json` or `${XDG_CONFIG_HOME}/skaldi/config.json`:
+Optional. Enable via `config.json`:
 
 ```json
 {
@@ -60,24 +93,9 @@ OpenSubsonic is optional. If you want it, create `~/.config/skaldi/config.json` 
 }
 ```
 
-If the config is missing or disabled, Skaldi starts normally without OpenSubsonic. If the config is invalid, Skaldi disables that source and logs a warning.
-
-## Development
-
-```bash
-just all
-just lint
-just test
-just build
-just vuln
-just release-build
-```
-
-`just release-build` produces the standard release artifacts plus separate macOS 11 legacy Darwin binaries built through `go.legacy.mod`.
-
 ## Security
 
-Skaldi is designed for trusted networks. There is no authentication, and exposing it directly to the internet is unsafe.
+Designed for trusted networks. No authentication — do not expose directly to the internet.
 
 ## License
 

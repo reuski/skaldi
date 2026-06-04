@@ -1,46 +1,56 @@
-# Skaldi
+# Skaldi — Agent Guide
 
-Development guidelines for the Skaldi network jukebox.
+Network jukebox. Single Go binary, embedded web UI.
 
-## Philosophy
+## Principles
 
-- **Zero external Go dependencies** - stdlib only
-- **Self-contained** - single binary, embedded web UI
-- **Fail fast during provisioning** - fatal errors on missing deps
-- **Recover gracefully at runtime** - auto-restart, reconnect
+- Zero external Go deps — stdlib only.
+- Self-contained — one binary, embedded UI.
+- Provisioning: fail fast (fatal on missing deps).
+- Runtime: recover gracefully (auto-restart, reconnect).
 
 ## Stack
 
-**Backend (Go 1.26)**
-- Stdlib: `net/http`, `log/slog`, `os/exec`
-- Concurrency: channels for state, `sync.RWMutex` for shared data
-- Contexts required for all long-running operations
+**Backend** — Go 1.26, stdlib only.
+- `net/http`, `log/slog`, `os/exec`.
+- Channels for state mutation; `sync.RWMutex` for shared reads.
+- `context.Context` on every long-running operation.
 
-**Frontend**
-- Single file: `web/index.html` via `//go:embed`
-- Vanilla ES6, CSS variables, no build step
-- `fetch` for commands, `EventSource` for state
+**Frontend** — `web/index.html`, embedded via `//go:embed`.
+- Vanilla ES6, CSS variables, no build step.
+- `fetch` for commands, `EventSource` for state.
 
-**Managed Runtime Dependencies**
-- `uv` - Python package manager
-- `bun` - JS runtime for yt-dlp
-- `yt-dlp` - Media resolver (installed via uv)
-- `mpv` + `ffmpeg` - System dependencies
+**Managed runtime deps** (provisioned to `~/.cache/skaldi/bin/`)
+- `yt-dlp` — media resolver.
+- `bun` — JS runtime for yt-dlp signature/nsig challenges.
+
+**System deps** (from `PATH`)
+- `mpv`, `ffmpeg`, `avahi` (Linux mDNS).
+
+## Config & env
+
+| Setting | Env | `config.json` | Default |
+|---|---|---|---|
+| Listen port | `SKALDI_PORT` | `server.port` | `8080` |
+| Config path | `SKALDI_CONFIG` | — | `$XDG_CONFIG_HOME/skaldi/config.json` |
+| Provision | `SKALDI_PROVISION=0` | `provision: false` | on |
+
+`SKALDI_PROVISION=0` skips downloads; resolves `yt-dlp`/`bun` from `PATH` and writes the shim against them. Used by the Nix package (`flake.nix`, `nix/`).
 
 ## Structure
 
 ```
-cmd/skaldi/
-    main.go
+cmd/skaldi/main.go
 internal/
-    bootstrap/    # Provisioning (uv, bun, yt-dlp)
-    discovery/    # mDNS service registration
-    player/       # mpv process & IPC
-    resolver/     # yt-dlp metadata extraction
-    server/       # HTTP handlers & SSE
+    bootstrap/   # provisioning (yt-dlp, bun), config
+    discovery/   # mDNS registration
+    history/     # per-session JSONL playback logs
+    player/      # mpv process & IPC
+    resolver/    # yt-dlp metadata extraction
+    server/      # HTTP handlers & SSE
 web/
-    fs.go         # Embed directive
-    index.html    # Single-page UI
+    fs.go        # embed directive
+    index.html   # single-page UI
 ```
 
 ## Commands
@@ -49,34 +59,30 @@ web/
 just all      # lint, test, build
 just build    # go build
 just test     # go test -v -race ./internal/...
-just lint     # gofmt, golangci-lint, go vet
+just lint     # gofmt-check, golangci-lint, go vet
 just vuln     # govulncheck
 ```
 
 ## Invariants
 
-1. **Shim**: mpv NEVER calls yt-dlp directly. Use generated shim at `bin/yt-dlp`
-2. **Source of truth**: mpv's internal playlist is master state. Mirror via IPC, don't predict
-3. **Idempotency**: Check existence/version before downloading in bootstrap
-4. **Lint compliance**: All errors handled or explicitly ignored (`_ = err`)
+1. **Shim** — mpv never calls yt-dlp directly; it calls the generated `bin/yt-dlp`.
+2. **Source of truth** — mpv's internal playlist is master state. Mirror via IPC; never predict.
+3. **Idempotency** — check existence/version before downloading in bootstrap.
+4. **Lint** — every error handled or explicitly ignored (`_ = err`).
+5. **Paths** — absolute paths for `bin/`; `path/filepath` for cross-platform joins.
 
 ## Patterns
 
-### Adding IPC Commands
+**Add IPC command**
+1. Wrapper in `internal/player/ipc.go`.
+2. Method in `internal/player/mpv.go`.
+3. Handler in `internal/server/handlers.go`.
 
-1. Add command wrapper in `internal/player/ipc.go`
-2. Expose method in `internal/player/mpv.go`
-3. Add handler in `internal/server/handlers.go`
+**State**
+- Mutate via channels (actor model).
+- SSE: snapshot to new clients, deltas to existing.
+- Metadata cache pruned after 5 min.
 
-### State Updates
-
-- Use channels for state mutations (actor-like)
-- SSE broadcaster sends snapshots to new clients, deltas to existing
-- Metadata cache pruned after 5 minutes
-
-### Error Handling
-
-- Provisioning: `log.Fatal` on missing prerequisites
-- Runtime: retry with backoff, don't crash
-- Always use absolute paths for cache `bin/` directory
-- Use `path/filepath` for cross-platform compatibility
+**Errors**
+- Provisioning → `log.Fatal` on missing prerequisites.
+- Runtime → retry with backoff, never crash.
