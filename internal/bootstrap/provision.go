@@ -3,13 +3,11 @@
 package bootstrap
 
 import (
-	"bytes"
 	"fmt"
 	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strings"
 )
 
 func Run(logger *slog.Logger) error {
@@ -26,6 +24,10 @@ func Run(logger *slog.Logger) error {
 		return err
 	}
 
+	if !cfg.Provision {
+		return useSystemTools(cfg, logger)
+	}
+
 	state, err := loadOrCreateState(cfg)
 	if err != nil {
 		return err
@@ -40,16 +42,12 @@ func Run(logger *slog.Logger) error {
 		return fmt.Errorf("failed to fetch latest versions (first run requires network): %w", err)
 	}
 
-	if err := installUvIfNeeded(cfg, state, latest, logger); err != nil {
+	if err := installYtDlpIfNeeded(cfg, state, latest, logger); err != nil {
 		return err
 	}
 
 	if err := installBunIfNeeded(cfg, state, latest, logger); err != nil {
 		return err
-	}
-
-	if err := upgradeYtDlp(cfg, state, logger); err != nil {
-		return fmt.Errorf("failed to upgrade yt-dlp: %w", err)
 	}
 
 	return generateShim(cfg)
@@ -60,20 +58,17 @@ func fileExists(path string) bool {
 	return err == nil
 }
 
-func installUv(cfg *Config, version string) error {
+func installYtDlp(cfg *Config, version string) error {
 	info, err := GetPlatformInfo()
 	if err != nil {
 		return err
 	}
 
-	url := ConstructUvURL(version, info.UvArtifact)
-	tmpFile := filepath.Join(cfg.CacheDir, "uv_download.tmp")
-	defer os.Remove(tmpFile)
-
-	if err := DownloadFile(url, tmpFile); err != nil {
+	url := ConstructYtDlpURL(version, info.YtDlpArtifact)
+	if err := DownloadFile(url, cfg.YtDlpPath()); err != nil {
 		return err
 	}
-	return ExtractTarGz(tmpFile, "uv", cfg.UvPath())
+	return os.Chmod(cfg.YtDlpPath(), 0o755)
 }
 
 func installBun(cfg *Config, version string) error {
@@ -92,42 +87,33 @@ func installBun(cfg *Config, version string) error {
 	return ExtractZip(tmpFile, "bun", cfg.BunPath())
 }
 
-func upgradeYtDlp(cfg *Config, state *State, logger *slog.Logger) error {
-	logger.Debug("Installing/upgrading yt-dlp")
-	cmd := exec.Command(cfg.UvPath(), "tool", "install", "--force", "yt-dlp[default]")
-	cmd.Env = append(os.Environ(), "UV_TOOL_BIN_DIR="+cfg.UvBinDir)
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("uv install failed: %s: %w", string(output), err)
-	}
-
-	version, err := getYtDlpVersion(cfg)
-	if err == nil {
-		state.YtDlp = version
-		_ = SaveState(cfg.CacheDir, state)
-	}
-	return nil
-}
-
-func getYtDlpVersion(cfg *Config) (string, error) {
-	cmd := exec.Command(cfg.RealYtDlpPath(), "--version")
-	var out bytes.Buffer
-	cmd.Stdout = &out
-	if err := cmd.Run(); err != nil {
-		return "", err
-	}
-	return strings.TrimSpace(out.String()), nil
-}
-
 func generateShim(cfg *Config) error {
-	shimContent := fmt.Sprintf("#!/bin/sh\nexec \"%s\" --js-runtimes \"bun:%s\" \"$@\"\n",
-		cfg.RealYtDlpPath(), cfg.BunPath())
+	return writeShim(cfg.ShimPath(), cfg.YtDlpPath(), cfg.BunPath())
+}
 
-	return os.WriteFile(cfg.ShimPath(), []byte(shimContent), 0o755)
+func writeShim(shimPath, ytDlpPath, bunPath string) error {
+	shimContent := fmt.Sprintf("#!/bin/sh\nexec \"%s\" --js-runtimes \"bun:%s\" \"$@\"\n",
+		ytDlpPath, bunPath)
+
+	return os.WriteFile(shimPath, []byte(shimContent), 0o755)
+}
+
+func useSystemTools(cfg *Config, logger *slog.Logger) error {
+	ytDlpPath, err := exec.LookPath("yt-dlp")
+	if err != nil {
+		return fmt.Errorf("provisioning disabled but yt-dlp not found in PATH: %w", err)
+	}
+	bunPath, err := exec.LookPath("bun")
+	if err != nil {
+		return fmt.Errorf("provisioning disabled but bun not found in PATH: %w", err)
+	}
+
+	logger.Debug("Using system tools", "yt-dlp", ytDlpPath, "bun", bunPath)
+	return writeShim(cfg.ShimPath(), ytDlpPath, bunPath)
 }
 
 func createDirectories(cfg *Config) error {
-	for _, dir := range []string{cfg.CacheDir, cfg.BinDir, cfg.UvBinDir, cfg.DataDir} {
+	for _, dir := range []string{cfg.CacheDir, cfg.BinDir, cfg.DataDir} {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			return fmt.Errorf("failed to create directory %s: %w", dir, err)
 		}
@@ -144,16 +130,17 @@ func loadOrCreateState(cfg *Config) (*State, error) {
 }
 
 func canUseInstalledVersions(state *State, cfg *Config) bool {
-	return state.Uv != "" && fileExists(cfg.UvPath())
+	return state.YtDlp != "" && fileExists(cfg.YtDlpPath()) &&
+		state.Bun != "" && fileExists(cfg.BunPath())
 }
 
-func installUvIfNeeded(cfg *Config, state *State, latest *LatestVersions, logger *slog.Logger) error {
-	if state.Uv != latest.Uv || !fileExists(cfg.UvPath()) {
-		logger.Debug("Installing uv", "version", latest.Uv)
-		if err := installUv(cfg, latest.Uv); err != nil {
-			return fmt.Errorf("failed to install uv: %w", err)
+func installYtDlpIfNeeded(cfg *Config, state *State, latest *LatestVersions, logger *slog.Logger) error {
+	if state.YtDlp != latest.YtDlp || !fileExists(cfg.YtDlpPath()) {
+		logger.Debug("Installing yt-dlp", "version", latest.YtDlp)
+		if err := installYtDlp(cfg, latest.YtDlp); err != nil {
+			return fmt.Errorf("failed to install yt-dlp: %w", err)
 		}
-		state.Uv = latest.Uv
+		state.YtDlp = latest.YtDlp
 		_ = SaveState(cfg.CacheDir, state)
 	}
 	return nil

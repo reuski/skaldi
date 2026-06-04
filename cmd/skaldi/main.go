@@ -46,7 +46,7 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	const port = 8080
+	port := cfg.Port
 
 	mdnsCleanup, mdnsActive := discovery.Register(ctx, logger, port)
 	defer mdnsCleanup()

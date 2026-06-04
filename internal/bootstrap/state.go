@@ -10,7 +10,6 @@ import (
 )
 
 type State struct {
-	Uv    string `json:"uv"`
 	Bun   string `json:"bun"`
 	YtDlp string `json:"yt-dlp"`
 }

@@ -26,7 +26,6 @@ func setupTestServer(t *testing.T) (*Server, *player.Manager) {
 	cfg := &bootstrap.Config{
 		CacheDir:   t.TempDir(),
 		BinDir:     t.TempDir(),
-		UvBinDir:   t.TempDir(),
 		MpvSocket:  t.TempDir() + "/mpv.sock",
 		ConfigPath: t.TempDir() + "/config.json",
 	}
@@ -598,7 +597,6 @@ func setupSearchServer(t *testing.T, withLibrary bool) *Server {
 	cfg := &bootstrap.Config{
 		CacheDir:   cacheDir,
 		BinDir:     binDir,
-		UvBinDir:   t.TempDir(),
 		MpvSocket:  filepath.Join(t.TempDir(), "mpv.sock"),
 		ConfigPath: filepath.Join(t.TempDir(), "config.json"),
 	}

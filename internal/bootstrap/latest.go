@@ -11,8 +11,8 @@ import (
 )
 
 type LatestVersions struct {
-	Uv  string
-	Bun string
+	YtDlp string
+	Bun   string
 }
 
 type githubRelease struct {
@@ -36,12 +36,12 @@ func FetchLatestVersions(cacheDir string, logger interface{ Debug(string, ...any
 		logger.Debug("Fetching latest versions from GitHub API")
 	}
 
-	uv, err := fetchLatestTag("astral-sh", "uv")
+	ytDlp, err := fetchLatestTag("yt-dlp", "yt-dlp")
 	if err != nil {
 		if cv != nil {
 			return &cv.Versions, nil
 		}
-		return nil, fmt.Errorf("uv: %w", err)
+		return nil, fmt.Errorf("yt-dlp: %w", err)
 	}
 
 	bun, err := fetchLatestTag("oven-sh", "bun")
@@ -53,7 +53,7 @@ func FetchLatestVersions(cacheDir string, logger interface{ Debug(string, ...any
 	}
 	bun = strings.TrimPrefix(bun, "bun-v")
 
-	versions := &LatestVersions{Uv: uv, Bun: bun}
+	versions := &LatestVersions{YtDlp: ytDlp, Bun: bun}
 	_ = SaveCachedVersions(cacheDir, &CachedVersions{
 		Versions:  *versions,
 		CheckedAt: time.Now(),

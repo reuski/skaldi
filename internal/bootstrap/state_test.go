@@ -16,7 +16,7 @@ func TestLoadState_NotExists(t *testing.T) {
 		t.Fatalf("LoadState on non-existent file should return empty state: %v", err)
 	}
 
-	if state.Uv != "" || state.Bun != "" || state.YtDlp != "" {
+	if state.Bun != "" || state.YtDlp != "" {
 		t.Error("Expected empty state for non-existent file")
 	}
 }
@@ -26,7 +26,6 @@ func TestLoadState_ValidJSON(t *testing.T) {
 	statePath := filepath.Join(tmpDir, "versions.json")
 
 	jsonData := `{
-  "uv": "0.5.0",
   "bun": "1.1.0",
   "yt-dlp": "2024.01.01"
 }`
@@ -37,10 +36,6 @@ func TestLoadState_ValidJSON(t *testing.T) {
 	state, err := LoadState(tmpDir)
 	if err != nil {
 		t.Fatalf("LoadState failed: %v", err)
-	}
-
-	if state.Uv != "0.5.0" {
-		t.Errorf("Uv = %q, want %q", state.Uv, "0.5.0")
 	}
 
 	if state.Bun != "1.1.0" {
@@ -70,7 +65,6 @@ func TestSaveState(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	state := &State{
-		Uv:    "0.5.5",
 		Bun:   "1.1.10",
 		YtDlp: "2024.02.15",
 	}
@@ -92,10 +86,6 @@ func TestSaveState(t *testing.T) {
 	loaded, err := LoadState(tmpDir)
 	if err != nil {
 		t.Fatalf("LoadState after save failed: %v", err)
-	}
-
-	if loaded.Uv != state.Uv {
-		t.Errorf("Loaded Uv = %q, want %q", loaded.Uv, state.Uv)
 	}
 
 	if loaded.Bun != state.Bun {
@@ -121,7 +111,7 @@ func TestSaveState_EmptyState(t *testing.T) {
 		t.Fatalf("LoadState after save failed: %v", err)
 	}
 
-	if loaded.Uv != "" || loaded.Bun != "" || loaded.YtDlp != "" {
+	if loaded.Bun != "" || loaded.YtDlp != "" {
 		t.Error("Empty state should load as empty values")
 	}
 }
@@ -136,7 +126,6 @@ func TestState_RoundTrip(t *testing.T) {
 		{
 			name: "full",
 			state: State{
-				Uv:    "1.0.0",
 				Bun:   "1.0.0",
 				YtDlp: "2024.01.01",
 			},
@@ -144,7 +133,7 @@ func TestState_RoundTrip(t *testing.T) {
 		{
 			name: "partial",
 			state: State{
-				Uv: "0.5.0",
+				Bun: "0.5.0",
 			},
 		},
 		{
@@ -168,10 +157,6 @@ func TestState_RoundTrip(t *testing.T) {
 			loaded, err := LoadState(tmpDir)
 			if err != nil {
 				t.Fatalf("LoadState failed: %v", err)
-			}
-
-			if loaded.Uv != tc.state.Uv {
-				t.Errorf("Uv mismatch: got %q, want %q", loaded.Uv, tc.state.Uv)
 			}
 
 			if loaded.Bun != tc.state.Bun {

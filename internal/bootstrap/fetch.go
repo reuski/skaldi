@@ -33,8 +33,8 @@ func DownloadFile(url, filepath string) error {
 	return nil
 }
 
-func ConstructUvURL(version, artifactName string) string {
-	return fmt.Sprintf("https://github.com/astral-sh/uv/releases/download/%s/%s", version, artifactName)
+func ConstructYtDlpURL(version, artifactName string) string {
+	return fmt.Sprintf("https://github.com/yt-dlp/yt-dlp/releases/download/%s/%s", version, artifactName)
 }
 
 func ConstructBunURL(version, artifactName string) string {

@@ -4,18 +4,31 @@
 package bootstrap
 
 import (
+	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 )
+
+const defaultPort = 8080
 
 type Config struct {
 	CacheDir   string
 	BinDir     string
-	UvBinDir   string
 	MpvSocket  string
 	DataDir    string
 	ConfigPath string
+	Port       int
+	Provision  bool
+}
+
+type Settings struct {
+	Server struct {
+		Port int `json:"port"`
+	} `json:"server"`
+	Provision *bool `json:"provision"`
 }
 
 func LoadConfig() (*Config, error) {
@@ -45,29 +58,79 @@ func LoadConfig() (*Config, error) {
 		configDir = filepath.Join(home, ".config")
 	}
 	appConfigPath := filepath.Join(configDir, "skaldi", "config.json")
+	if envPath := os.Getenv("SKALDI_CONFIG"); envPath != "" {
+		appConfigPath = envPath
+	}
+
+	settings, err := loadSettings(appConfigPath)
+	if err != nil {
+		return nil, err
+	}
 
 	return &Config{
 		CacheDir:   cacheDir,
 		BinDir:     filepath.Join(cacheDir, "bin"),
-		UvBinDir:   filepath.Join(cacheDir, "uv-bin"),
 		MpvSocket:  filepath.Join(cacheDir, "mpv.sock"),
 		DataDir:    historyDir,
 		ConfigPath: appConfigPath,
+		Port:       resolvePort(settings),
+		Provision:  resolveProvision(settings),
 	}, nil
 }
 
-func (c *Config) UvPath() string {
-	return filepath.Join(c.BinDir, "uv")
+func loadSettings(path string) (Settings, error) {
+	var s Settings
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return s, nil
+		}
+		return s, fmt.Errorf("failed to read config %s: %w", path, err)
+	}
+	if len(data) == 0 {
+		return s, nil
+	}
+	if err := json.Unmarshal(data, &s); err != nil {
+		return s, fmt.Errorf("invalid config JSON at %s: %w", path, err)
+	}
+	return s, nil
+}
+
+func resolvePort(s Settings) int {
+	if env := os.Getenv("SKALDI_PORT"); env != "" {
+		if p, err := strconv.Atoi(env); err == nil && p > 0 {
+			return p
+		}
+	}
+	if s.Server.Port > 0 {
+		return s.Server.Port
+	}
+	return defaultPort
+}
+
+func resolveProvision(s Settings) bool {
+	if env, ok := os.LookupEnv("SKALDI_PROVISION"); ok {
+		switch env {
+		case "0", "false", "no", "off":
+			return false
+		case "1", "true", "yes", "on":
+			return true
+		}
+	}
+	if s.Provision != nil {
+		return *s.Provision
+	}
+	return true
 }
 
 func (c *Config) BunPath() string {
 	return filepath.Join(c.BinDir, "bun")
 }
 
-func (c *Config) ShimPath() string {
-	return filepath.Join(c.BinDir, "yt-dlp")
+func (c *Config) YtDlpPath() string {
+	return filepath.Join(c.BinDir, "yt-dlp.bin")
 }
 
-func (c *Config) RealYtDlpPath() string {
-	return filepath.Join(c.UvBinDir, "yt-dlp")
+func (c *Config) ShimPath() string {
+	return filepath.Join(c.BinDir, "yt-dlp")
 }

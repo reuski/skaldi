@@ -327,9 +327,7 @@ func TestSearchCacheCoalescesConcurrentLoads(t *testing.T) {
 
 	var wg sync.WaitGroup
 	for range 4 {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			value, err := cache.GetOrLoad(context.Background(), "same-key", loader)
 			if err != nil {
 				t.Errorf("GetOrLoad failed: %v", err)
@@ -338,7 +336,7 @@ func TestSearchCacheCoalescesConcurrentLoads(t *testing.T) {
 			if value != "value" {
 				t.Errorf("value = %q, want value", value)
 			}
-		}()
+		})
 	}
 	wg.Wait()
 
@@ -370,7 +368,6 @@ func newTestResolver(t *testing.T) *Resolver {
 	cfg := &bootstrap.Config{
 		CacheDir:   t.TempDir(),
 		BinDir:     t.TempDir(),
-		UvBinDir:   t.TempDir(),
 		MpvSocket:  filepath.Join(t.TempDir(), "mpv.sock"),
 		ConfigPath: filepath.Join(t.TempDir(), "config.json"),
 	}
