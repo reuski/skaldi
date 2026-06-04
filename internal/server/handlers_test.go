@@ -626,7 +626,7 @@ for arg in "$@"; do
 done
 case "$last" in
   ytsearch8:*)
-    printf '%s\n' '{"id":"shared-1","title":"Test Song","uploader":"Loose Channel","webpage_url":"https://www.youtube.com/watch?v=shared-1","ie_key":"Youtube"}'
+    printf '%s\n' '{"id":"shared-1","title":"Test Song","uploader":"Loose Channel","duration":201,"thumbnail":"https://img.example/shared-1-youtube.jpg","webpage_url":"https://www.youtube.com/watch?v=shared-1","ie_key":"Youtube"}'
     ;;
   https://music.youtube.com/search\?q=*)
     sleep 0.05

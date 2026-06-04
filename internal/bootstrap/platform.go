@@ -8,30 +8,34 @@ import (
 )
 
 type PlatformInfo struct {
-	YtDlpArtifact string
-	BunArtifact   string
+	YtDlpArtifact   string
+	YtDlpExecutable string
+	BunArtifact     string
 }
 
 func GetPlatformInfo() (*PlatformInfo, error) {
 	goos := runtime.GOOS
 	arch := runtime.GOARCH
 
-	var ytDlp, bun string
+	var ytDlpArtifact, ytDlpExecutable, bun string
 
 	switch goos {
 	case "linux":
 		switch arch {
 		case "amd64":
-			ytDlp = "yt-dlp_linux"
+			ytDlpArtifact = "yt-dlp_linux.zip"
+			ytDlpExecutable = "yt-dlp_linux"
 			bun = "bun-linux-x64.zip"
 		case "arm64":
-			ytDlp = "yt-dlp_linux_aarch64"
+			ytDlpArtifact = "yt-dlp_linux_aarch64.zip"
+			ytDlpExecutable = "yt-dlp_linux_aarch64"
 			bun = "bun-linux-aarch64.zip"
 		default:
 			return nil, fmt.Errorf("unsupported linux architecture: %s", arch)
 		}
 	case "darwin":
-		ytDlp = "yt-dlp_macos"
+		ytDlpArtifact = "yt-dlp_macos.zip"
+		ytDlpExecutable = "yt-dlp_macos"
 		switch arch {
 		case "amd64":
 			bun = "bun-darwin-x64.zip"
@@ -44,5 +48,9 @@ func GetPlatformInfo() (*PlatformInfo, error) {
 		return nil, fmt.Errorf("unsupported operating system: %s", goos)
 	}
 
-	return &PlatformInfo{YtDlpArtifact: ytDlp, BunArtifact: bun}, nil
+	return &PlatformInfo{
+		YtDlpArtifact:   ytDlpArtifact,
+		YtDlpExecutable: ytDlpExecutable,
+		BunArtifact:     bun,
+	}, nil
 }

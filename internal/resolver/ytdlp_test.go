@@ -30,7 +30,7 @@ func TestTrackFromResponse(t *testing.T) {
 			resp: ytDlpResponse{
 				ID:         "abc123",
 				Title:      "Maniac",
-				Artist:     "Michael Sembello",
+				Artist:     "Michael Sembello, Guest Artist",
 				Duration:   256,
 				Uploader:   "Michael Sembello - Topic",
 				WebpageURL: "https://music.youtube.com/watch?v=abc123",
@@ -127,6 +127,26 @@ func TestTrackFromResponse(t *testing.T) {
 				t.Errorf("Source = %q, want %q", got.Source, tc.expected.Source)
 			}
 		})
+	}
+}
+
+func TestSearchHitsRequireVideoDisplayMetadata(t *testing.T) {
+	complete := Track{
+		ID:         "complete",
+		Title:      "Complete",
+		Artist:     "Artist",
+		Duration:   180,
+		Thumbnail:  "https://img.example/complete.jpg",
+		WebpageURL: "https://www.youtube.com/watch?v=complete",
+		Source:     SourceYouTube,
+	}
+	incomplete := complete
+	incomplete.ID = "incomplete"
+	incomplete.Duration = 0
+
+	hits := searchHitsFromTracks([]Track{complete, incomplete})
+	if len(hits) != 1 || hits[0].ID != "complete" {
+		t.Fatalf("hits = %#v, want only complete video metadata", hits)
 	}
 }
 
@@ -388,12 +408,13 @@ for arg in "$@"; do
 done
 case "$last" in
   ytsearch12:*)
-    printf '%s\n' '{"id":"shared-1","title":"Test Song","uploader":"Loose Channel","webpage_url":"https://www.youtube.com/watch?v=shared-1","ie_key":"Youtube"}'
+    printf '%s\n' '{"id":"shared-1","title":"Test Song","uploader":"Loose Channel","duration":201,"thumbnail":"https://img.example/shared-1-youtube.jpg","webpage_url":"https://www.youtube.com/watch?v=shared-1","ie_key":"Youtube"}'
     ;;
   https://music.youtube.com/search\?q=*)
     sleep 0.05
-    printf '%s\n' '{"id":"shared-1","title":"Test Song","artist":"Precise Artist","duration":201,"thumbnail":"https://img.example/shared-1.jpg","webpage_url":"https://music.youtube.com/watch?v=shared-1","ie_key":"Youtube"}'
-    printf '%s\n' '{"id":"music-only-2","title":"Other Song","artist":"Other Artist","duration":202,"thumbnail":"https://img.example/music-only-2.jpg","webpage_url":"https://music.youtube.com/watch?v=music-only-2","ie_key":"Youtube"}'
+    printf '%s\n' '{"id":"shared-1","title":"Test Song","artist":"Precise Artist, Guest Artist","duration":201,"thumbnail":"https://img.example/shared-1.jpg","webpage_url":"https://music.youtube.com/watch?v=shared-1","ie_key":"Youtube"}'
+    printf '%s\n' '{"id":"music-only-2","title":"Other Song","artist":"Other Artist, Guest Artist","duration":202,"thumbnail":"https://img.example/music-only-2.jpg","webpage_url":"https://music.youtube.com/watch?v=music-only-2","ie_key":"Youtube"}'
+    printf '%s\n' '{"id":"incomplete-3","title":"Missing Metadata","webpage_url":"https://music.youtube.com/watch?v=incomplete-3","ie_key":"Youtube"}'
     ;;
 esac
 `)

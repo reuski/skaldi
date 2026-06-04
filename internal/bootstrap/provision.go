@@ -3,11 +3,18 @@
 package bootstrap
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"time"
+)
+
+const (
+	ytDlpWarmupTimeout  = 30 * time.Second
+	ytDlpStartupTimeout = 3 * time.Second
 )
 
 func Run(logger *slog.Logger) error {
@@ -37,6 +44,7 @@ func Run(logger *slog.Logger) error {
 	if err != nil {
 		if canUseInstalledVersions(state, cfg) {
 			logger.Debug("GitHub API unavailable, using installed versions")
+			cleanupLegacyProvisioning(cfg)
 			return generateShim(cfg)
 		}
 		return fmt.Errorf("failed to fetch latest versions (first run requires network): %w", err)
@@ -50,6 +58,7 @@ func Run(logger *slog.Logger) error {
 		return err
 	}
 
+	cleanupLegacyProvisioning(cfg)
 	return generateShim(cfg)
 }
 
@@ -65,10 +74,44 @@ func installYtDlp(cfg *Config, version string) error {
 	}
 
 	url := ConstructYtDlpURL(version, info.YtDlpArtifact)
-	if err := DownloadFile(url, cfg.YtDlpPath()); err != nil {
+	archivePath := filepath.Join(cfg.CacheDir, "yt-dlp_download.tmp")
+	defer os.Remove(archivePath)
+	if err := DownloadFile(url, archivePath); err != nil {
 		return err
 	}
-	return os.Chmod(cfg.YtDlpPath(), 0o755)
+
+	runtimeDir, err := os.MkdirTemp(cfg.BinDir, ".yt-dlp-runtime-")
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(runtimeDir)
+
+	if err := ExtractZipTree(archivePath, runtimeDir); err != nil {
+		return err
+	}
+	if _, err := os.Stat(filepath.Join(runtimeDir, "_internal")); err != nil {
+		return fmt.Errorf("yt-dlp runtime is not unpacked: %w", err)
+	}
+
+	executablePath := filepath.Join(runtimeDir, info.YtDlpExecutable)
+	ytDlpPath := filepath.Join(runtimeDir, "yt-dlp")
+	if err := os.Rename(executablePath, ytDlpPath); err != nil {
+		return fmt.Errorf("failed to prepare yt-dlp executable: %w", err)
+	}
+	if err := os.Chmod(ytDlpPath, 0o755); err != nil {
+		return err
+	}
+	if err := validateYtDlpRuntime(ytDlpPath); err != nil {
+		return err
+	}
+
+	if err := os.RemoveAll(cfg.YtDlpDir()); err != nil {
+		return err
+	}
+	if err := os.Rename(runtimeDir, cfg.YtDlpDir()); err != nil {
+		return err
+	}
+	return nil
 }
 
 func installBun(cfg *Config, version string) error {
@@ -85,6 +128,24 @@ func installBun(cfg *Config, version string) error {
 		return err
 	}
 	return ExtractZip(tmpFile, "bun", cfg.BunPath())
+}
+
+func validateYtDlpRuntime(path string) error {
+	warmupCtx, cancelWarmup := context.WithTimeout(context.Background(), ytDlpWarmupTimeout)
+	defer cancelWarmup()
+	if output, err := exec.CommandContext(warmupCtx, path, "--version").CombinedOutput(); err != nil {
+		return fmt.Errorf("yt-dlp warm-up failed: %s: %w", string(output), err)
+	}
+
+	startupCtx, cancelStartup := context.WithTimeout(context.Background(), ytDlpStartupTimeout)
+	defer cancelStartup()
+	if output, err := exec.CommandContext(startupCtx, path, "--version").CombinedOutput(); err != nil {
+		if startupCtx.Err() != nil {
+			return fmt.Errorf("yt-dlp startup exceeds %s performance requirement", ytDlpStartupTimeout)
+		}
+		return fmt.Errorf("yt-dlp startup check failed: %s: %w", string(output), err)
+	}
+	return nil
 }
 
 func generateShim(cfg *Config) error {
@@ -112,6 +173,12 @@ func useSystemTools(cfg *Config, logger *slog.Logger) error {
 	return writeShim(cfg.ShimPath(), ytDlpPath, bunPath)
 }
 
+func cleanupLegacyProvisioning(cfg *Config) {
+	_ = os.Remove(filepath.Join(cfg.BinDir, "yt-dlp.bin"))
+	_ = os.Remove(filepath.Join(cfg.BinDir, "uv"))
+	_ = os.RemoveAll(filepath.Join(cfg.CacheDir, "uv-bin"))
+}
+
 func createDirectories(cfg *Config) error {
 	for _, dir := range []string{cfg.CacheDir, cfg.BinDir, cfg.DataDir} {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -130,12 +197,16 @@ func loadOrCreateState(cfg *Config) (*State, error) {
 }
 
 func canUseInstalledVersions(state *State, cfg *Config) bool {
-	return state.YtDlp != "" && fileExists(cfg.YtDlpPath()) &&
+	return state.YtDlp != "" && ytDlpRuntimeExists(cfg) &&
 		state.Bun != "" && fileExists(cfg.BunPath())
 }
 
+func ytDlpRuntimeExists(cfg *Config) bool {
+	return fileExists(cfg.YtDlpPath()) && fileExists(filepath.Join(cfg.YtDlpDir(), "_internal"))
+}
+
 func installYtDlpIfNeeded(cfg *Config, state *State, latest *LatestVersions, logger *slog.Logger) error {
-	if state.YtDlp != latest.YtDlp || !fileExists(cfg.YtDlpPath()) {
+	if state.YtDlp != latest.YtDlp || !ytDlpRuntimeExists(cfg) {
 		logger.Debug("Installing yt-dlp", "version", latest.YtDlp)
 		if err := installYtDlp(cfg, latest.YtDlp); err != nil {
 			return fmt.Errorf("failed to install yt-dlp: %w", err)

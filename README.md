@@ -4,7 +4,7 @@
 
 Self-hosted network jukebox. One Go binary, one embedded web UI, zero external Go dependencies.
 
-Runs `mpv` locally, serves a browser UI on your LAN, and provisions standalone `yt-dlp` + `bun` binaries into `~/.cache/skaldi/` on first run. No Python or package manager required.
+Runs `mpv` locally, serves a browser UI on your LAN, and provisions self-contained `yt-dlp` + `bun` runtimes into `~/.cache/skaldi/` on first run. No system Python or package manager required.
 
 ## Features
 

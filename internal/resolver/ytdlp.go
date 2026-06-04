@@ -42,8 +42,7 @@ const (
 	ytMusicCacheTTL       = 2 * time.Minute
 	suggestionTimeout     = 2 * time.Second
 	externalSearchTimeout = 2500 * time.Millisecond
-	youtubeSearchTimeout  = 5 * time.Second
-	ytMusicSearchTimeout  = 10 * time.Second
+	videoSearchTimeout    = 5 * time.Second
 )
 
 type SearchIntent string
@@ -389,20 +388,19 @@ func (r *Resolver) streamVideoResults(ctx context.Context, query string, resultC
 
 	type providerResult struct {
 		tracks []Track
-		err    error
 	}
 
 	youtubeCh := make(chan providerResult, 1)
 	ytMusicCh := make(chan providerResult, 1)
 
 	go func() {
-		tracks, err := r.loadYouTubeTracks(ctx, query)
-		youtubeCh <- providerResult{tracks: tracks, err: err}
+		tracks, _ := r.loadYouTubeTracks(ctx, query)
+		youtubeCh <- providerResult{tracks: tracks}
 	}()
 
 	go func() {
-		tracks, err := r.loadYTMusicTracks(ctx, query)
-		ytMusicCh <- providerResult{tracks: tracks, err: err}
+		tracks, _ := r.loadYTMusicTracks(ctx, query)
+		ytMusicCh <- providerResult{tracks: tracks}
 	}()
 
 	var (
@@ -418,7 +416,7 @@ func (r *Resolver) streamVideoResults(ctx context.Context, query string, resultC
 			return
 		case result := <-youtubeCh:
 			youtubeReady = true
-			if result.err == nil {
+			if len(result.tracks) > 0 {
 				youtubeTracks = trimTracks(result.tracks, resultsTrackLimit)
 			}
 			if len(youtubeTracks) > 0 && !ytMusicReady {
@@ -431,7 +429,7 @@ func (r *Resolver) streamVideoResults(ctx context.Context, query string, resultC
 			}
 		case result := <-ytMusicCh:
 			ytMusicReady = true
-			if result.err == nil {
+			if len(result.tracks) > 0 {
 				ytMusicTracks = trimTracks(result.tracks, resultsTrackLimit)
 			}
 		}
@@ -517,7 +515,7 @@ func (r *Resolver) loadExternalTracks(ctx context.Context, query string) ([]Trac
 
 func (r *Resolver) loadYouTubeTracks(ctx context.Context, query string) ([]Track, error) {
 	return r.youtubeCache.GetOrLoad(ctx, query, func(ctx context.Context) ([]Track, error) {
-		tCtx, cancel := context.WithTimeout(ctx, youtubeSearchTimeout)
+		tCtx, cancel := context.WithTimeout(ctx, videoSearchTimeout)
 		defer cancel()
 		tracks, err := r.searchYouTube(tCtx, query)
 		if err != nil {
@@ -529,13 +527,19 @@ func (r *Resolver) loadYouTubeTracks(ctx context.Context, query string) ([]Track
 
 func (r *Resolver) loadYTMusicTracks(ctx context.Context, query string) ([]Track, error) {
 	return r.ytMusicCache.GetOrLoad(ctx, query, func(ctx context.Context) ([]Track, error) {
-		tCtx, cancel := context.WithTimeout(ctx, ytMusicSearchTimeout)
+		tCtx, cancel := context.WithTimeout(ctx, videoSearchTimeout)
 		defer cancel()
 		tracks, err := r.searchMusic(tCtx, query)
 		if err != nil {
 			return nil, err
 		}
-		return rankTracks(query, dedupeTracks(tracks, providerSearchLimit), providerSearchLimit), nil
+		tracks = rankTracks(query, dedupeTracks(tracks, providerSearchLimit), resultsTrackLimit)
+		r.hydrateVideoTracks(tCtx, tracks)
+		complete := completeVideoTracks(tracks)
+		if len(complete) < len(tracks) {
+			return complete, fmt.Errorf("yt-dlp music metadata incomplete")
+		}
+		return complete, nil
 	})
 }
 
@@ -567,53 +571,28 @@ func (r *Resolver) searchYouTube(ctx context.Context, query string) ([]Track, er
 
 func (r *Resolver) searchMusic(ctx context.Context, query string) ([]Track, error) {
 	musicURL := "https://music.youtube.com/search?q=" + url.QueryEscape(query) + "#songs"
-	args := []string{"--dump-json", "--no-download", "--no-warnings"}
-	args = append(args, "--playlist-end", fmt.Sprintf("%d", providerSearchLimit*2))
+	args := []string{"--dump-json", "--flat-playlist", "--no-download", "--no-warnings"}
+	args = append(args, "--playlist-end", fmt.Sprintf("%d", resultsTrackLimit))
 	args = append(args, musicURL)
 
-	cmdCtx, cmdCancel := context.WithCancel(ctx)
-	defer cmdCancel()
-
-	cmd := exec.CommandContext(cmdCtx, r.cfg.ShimPath(), args...)
-	stdout, err := cmd.StdoutPipe()
+	cmd := exec.CommandContext(ctx, r.cfg.ShimPath(), args...)
+	out, err := cmd.Output()
 	if err != nil {
-		return nil, err
-	}
-	if err := cmd.Start(); err != nil {
-		return nil, err
-	}
-
-	var tracks []Track
-	scanner := bufio.NewScanner(stdout)
-	scanner.Buffer(make([]byte, 0, 64*1024), 10*1024*1024)
-
-	for scanner.Scan() {
-		var resp ytDlpResponse
-		if err := json.Unmarshal(scanner.Bytes(), &resp); err != nil {
-			continue
-		}
-		if resp.IEKey == "YoutubeTab" || resp.LiveStatus == "is_live" || resp.LiveStatus == "was_live" {
-			continue
-		}
-		track := trackFromResponse(resp)
-		if track.WebpageURL == "" {
-			continue
-		}
-		track.Source = SourceYTMusic
-		tracks = append(tracks, track)
-		if len(tracks) >= providerSearchLimit {
-			break
-		}
-	}
-
-	cmdCancel()
-	_ = cmd.Wait()
-
-	if len(tracks) == 0 {
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
 		}
-		return nil, fmt.Errorf("no tracks found")
+		return nil, fmt.Errorf("yt-dlp music search failed: %w", err)
+	}
+
+	tracks, err := parseLines(out)
+	if err != nil {
+		if isNoTracksError(err) {
+			return []Track{}, nil
+		}
+		return nil, err
+	}
+	for i := range tracks {
+		tracks[i].Source = SourceYTMusic
 	}
 	return tracks, nil
 }
@@ -667,6 +646,39 @@ func (r *Resolver) resolveSubsonicTrack(ctx context.Context, ref SubsonicRef) ([
 	return []Track{track}, nil
 }
 
+func (r *Resolver) hydrateVideoTracks(ctx context.Context, tracks []Track) {
+	var wg sync.WaitGroup
+	for index := range tracks {
+		if hasVideoDisplayMetadata(tracks[index]) {
+			continue
+		}
+		wg.Go(func() {
+			meta, err := r.fetchVideoMetadata(ctx, tracks[index].WebpageURL)
+			if err != nil {
+				return
+			}
+			meta.Source = tracks[index].Source
+			tracks[index] = meta
+		})
+	}
+	wg.Wait()
+}
+
+func (r *Resolver) fetchVideoMetadata(ctx context.Context, rawURL string) (Track, error) {
+	args := []string{"--dump-json", "--no-playlist", "--no-download", "--no-warnings", rawURL}
+	cmd := exec.CommandContext(ctx, r.cfg.ShimPath(), args...)
+	out, err := cmd.Output()
+	if err != nil {
+		return Track{}, err
+	}
+
+	var resp ytDlpResponse
+	if err := json.Unmarshal(out, &resp); err != nil {
+		return Track{}, err
+	}
+	return trackFromResponse(resp), nil
+}
+
 func emitSearchBatch(ctx context.Context, resultCh chan<- SearchBatch, batch SearchBatch) {
 	select {
 	case <-ctx.Done():
@@ -677,6 +689,9 @@ func emitSearchBatch(ctx context.Context, resultCh chan<- SearchBatch, batch Sea
 func searchHitsFromTracks(tracks []Track) []SearchHit {
 	hits := make([]SearchHit, 0, len(tracks))
 	for _, track := range tracks {
+		if (track.Source == SourceYouTube || track.Source == SourceYTMusic) && !hasVideoDisplayMetadata(track) {
+			continue
+		}
 		queueURL := track.PlayableURL()
 		if queueURL == "" || track.WebpageURL == "" || track.Source == "" {
 			continue
@@ -693,6 +708,20 @@ func searchHitsFromTracks(tracks []Track) []SearchHit {
 		})
 	}
 	return hits
+}
+
+func hasVideoDisplayMetadata(track Track) bool {
+	return track.Title != "" && track.Artist != "" && track.Duration > 0 && track.Thumbnail != ""
+}
+
+func completeVideoTracks(tracks []Track) []Track {
+	complete := make([]Track, 0, len(tracks))
+	for _, track := range tracks {
+		if hasVideoDisplayMetadata(track) {
+			complete = append(complete, track)
+		}
+	}
+	return complete
 }
 
 func (t Track) PlayableURL() string {
@@ -928,7 +957,7 @@ func isNoTracksError(err error) bool {
 }
 
 func trackFromResponse(resp ytDlpResponse) Track {
-	artist := coalesce(resp.Artist, resp.Channel, resp.Uploader)
+	artist := firstArtist(coalesce(resp.Artist, resp.Channel, resp.Uploader))
 
 	webpageURL := resp.WebpageURL
 	if webpageURL == "" && resp.ID != "" && resp.IEKey == "Youtube" {
@@ -976,6 +1005,11 @@ func coalesce(values ...string) string {
 		}
 	}
 	return ""
+}
+
+func firstArtist(value string) string {
+	first, _, _ := strings.Cut(value, ",")
+	return strings.TrimSpace(first)
 }
 
 func parseDurationString(raw string) (float64, bool) {

@@ -127,8 +127,12 @@ func (c *Config) BunPath() string {
 	return filepath.Join(c.BinDir, "bun")
 }
 
+func (c *Config) YtDlpDir() string {
+	return filepath.Join(c.BinDir, "yt-dlp-runtime")
+}
+
 func (c *Config) YtDlpPath() string {
-	return filepath.Join(c.BinDir, "yt-dlp.bin")
+	return filepath.Join(c.YtDlpDir(), "yt-dlp")
 }
 
 func (c *Config) ShimPath() string {

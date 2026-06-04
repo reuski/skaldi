@@ -46,7 +46,8 @@ func TestConfig_Paths(t *testing.T) {
 		want string
 	}{
 		{"BunPath", cfg.BunPath(), "/tmp/skaldi-test/bin/bun"},
-		{"YtDlpPath", cfg.YtDlpPath(), "/tmp/skaldi-test/bin/yt-dlp.bin"},
+		{"YtDlpDir", cfg.YtDlpDir(), "/tmp/skaldi-test/bin/yt-dlp-runtime"},
+		{"YtDlpPath", cfg.YtDlpPath(), "/tmp/skaldi-test/bin/yt-dlp-runtime/yt-dlp"},
 		{"ShimPath", cfg.ShimPath(), "/tmp/skaldi-test/bin/yt-dlp"},
 	}
 

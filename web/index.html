@@ -1362,7 +1362,7 @@
       }
 
       function searchHitDuration(hit) {
-        return fmtTime(hit.duration);
+        return hit.duration > 0 ? fmtTime(hit.duration) : "";
       }
 
       function searchHitThumb(hit) {

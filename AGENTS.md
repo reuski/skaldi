@@ -6,6 +6,7 @@ Network jukebox. Single Go binary, embedded web UI.
 
 - Zero external Go deps — stdlib only.
 - Self-contained — one binary, embedded UI.
+- Performance and UX — stream useful results first; fail provisioning on runtime regressions.
 - Provisioning: fail fast (fatal on missing deps).
 - Runtime: recover gracefully (auto-restart, reconnect).
 

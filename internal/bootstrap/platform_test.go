@@ -18,6 +18,10 @@ func TestGetPlatformInfo(t *testing.T) {
 		t.Error("YtDlpArtifact should not be empty")
 	}
 
+	if info.YtDlpExecutable == "" {
+		t.Error("YtDlpExecutable should not be empty")
+	}
+
 	if info.BunArtifact == "" {
 		t.Error("BunArtifact should not be empty")
 	}
@@ -32,11 +36,8 @@ func TestGetPlatformInfo_ArtifactShape(t *testing.T) {
 	goos := runtime.GOOS
 
 	if goos == "linux" || goos == "darwin" {
-		if !strings.HasPrefix(info.YtDlpArtifact, "yt-dlp") {
-			t.Errorf("YtDlpArtifact should start with yt-dlp, got %s", info.YtDlpArtifact)
-		}
-		if strings.Contains(info.YtDlpArtifact, ".") {
-			t.Errorf("YtDlpArtifact should be a raw binary (no extension), got %s", info.YtDlpArtifact)
+		if !strings.HasSuffix(info.YtDlpArtifact, ".zip") {
+			t.Errorf("YtDlpArtifact should be an unpacked runtime archive, got %s", info.YtDlpArtifact)
 		}
 		if !strings.HasSuffix(info.BunArtifact, ".zip") {
 			t.Errorf("BunArtifact should end with .zip, got %s", info.BunArtifact)
@@ -85,8 +86,8 @@ func TestGetPlatformInfo_ArchSpecifics(t *testing.T) {
 			if !strings.Contains(info.BunArtifact, "x64") {
 				t.Errorf("BunArtifact should contain x64 on amd64, got %s", info.BunArtifact)
 			}
-			if info.YtDlpArtifact != "yt-dlp_linux" {
-				t.Errorf("YtDlpArtifact should be yt-dlp_linux on amd64, got %s", info.YtDlpArtifact)
+			if info.YtDlpArtifact != "yt-dlp_linux.zip" {
+				t.Errorf("YtDlpArtifact should be yt-dlp_linux.zip on amd64, got %s", info.YtDlpArtifact)
 			}
 		case "arm64":
 			if !strings.Contains(info.BunArtifact, "aarch64") {
@@ -107,29 +108,33 @@ func TestPlatformInfo_Struct(t *testing.T) {
 		{
 			name: "linux_amd64",
 			info: PlatformInfo{
-				YtDlpArtifact: "yt-dlp_linux",
-				BunArtifact:   "bun-linux-x64.zip",
+				YtDlpArtifact:   "yt-dlp_linux.zip",
+				YtDlpExecutable: "yt-dlp_linux",
+				BunArtifact:     "bun-linux-x64.zip",
 			},
 		},
 		{
 			name: "linux_arm64",
 			info: PlatformInfo{
-				YtDlpArtifact: "yt-dlp_linux_aarch64",
-				BunArtifact:   "bun-linux-aarch64.zip",
+				YtDlpArtifact:   "yt-dlp_linux_aarch64.zip",
+				YtDlpExecutable: "yt-dlp_linux_aarch64",
+				BunArtifact:     "bun-linux-aarch64.zip",
 			},
 		},
 		{
 			name: "darwin_amd64",
 			info: PlatformInfo{
-				YtDlpArtifact: "yt-dlp_macos",
-				BunArtifact:   "bun-darwin-x64.zip",
+				YtDlpArtifact:   "yt-dlp_macos.zip",
+				YtDlpExecutable: "yt-dlp_macos",
+				BunArtifact:     "bun-darwin-x64.zip",
 			},
 		},
 		{
 			name: "darwin_arm64",
 			info: PlatformInfo{
-				YtDlpArtifact: "yt-dlp_macos",
-				BunArtifact:   "bun-darwin-aarch64.zip",
+				YtDlpArtifact:   "yt-dlp_macos.zip",
+				YtDlpExecutable: "yt-dlp_macos",
+				BunArtifact:     "bun-darwin-aarch64.zip",
 			},
 		},
 	}
@@ -138,6 +143,9 @@ func TestPlatformInfo_Struct(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			if tc.info.YtDlpArtifact == "" {
 				t.Error("YtDlpArtifact should not be empty")
+			}
+			if tc.info.YtDlpExecutable == "" {
+				t.Error("YtDlpExecutable should not be empty")
 			}
 			if tc.info.BunArtifact == "" {
 				t.Error("BunArtifact should not be empty")
