@@ -109,7 +109,7 @@ func (m *Manager) StartDailyRotation(ctx context.Context) {
 			if !sleep(ctx, untilNextMidnight(time.Now())) {
 				return
 			}
-			for !m.rotateIfIdle() {
+			for !m.rotateIfStale() {
 				if !sleep(ctx, rotateRetry) {
 					return
 				}
@@ -133,14 +133,15 @@ func sleep(ctx context.Context, d time.Duration) bool {
 	}
 }
 
-func (m *Manager) rotateIfIdle() bool {
-	if m.State.Snapshot().Status != StatusIdle {
+func (m *Manager) rotateIfStale() bool {
+	if m.State.PlaylistActive() {
 		return false
 	}
 
-	m.logger.Debug("Rotating session: clearing playlist and history")
-	if _, err := m.ipc.Exec("playlist-clear"); err != nil {
-		m.logger.Error("Failed to clear playlist", "error", err)
+	m.logger.Debug("Rotating stale session: clearing playlist and history")
+	if _, err := m.ipc.Exec("stop"); err != nil {
+		m.logger.Error("Failed to clear stale playlist", "error", err)
+		return false
 	}
 	m.State.ResetPlayed()
 	m.history.Rotate("daily")

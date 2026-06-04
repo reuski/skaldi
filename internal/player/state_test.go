@@ -262,6 +262,34 @@ func TestState_Snapshot_Status(t *testing.T) {
 	}
 }
 
+func TestState_PlaylistActive(t *testing.T) {
+	tests := []struct {
+		name    string
+		idle    bool
+		paused  bool
+		playing bool
+		want    bool
+	}{
+		{name: "playing", playing: true, want: true},
+		{name: "idle", idle: true, playing: true},
+		{name: "paused", paused: true, playing: true},
+		{name: "not playing"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			s := NewState()
+			s.SetPlaylist([]MpvPlaylistEntry{{Filename: "track.mp3", Playing: tc.playing}})
+			s.SetIdle(tc.idle)
+			s.SetPaused(tc.paused)
+
+			if got := s.PlaylistActive(); got != tc.want {
+				t.Fatalf("PlaylistActive() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestState_Snapshot_EmptyPlaylist(t *testing.T) {
 	s := NewState()
 

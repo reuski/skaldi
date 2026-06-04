@@ -242,6 +242,15 @@ func (s *State) SetPlaylistPos(pos int) *QueueItem {
 	return s.copyCurrentItemLocked()
 }
 
+func (s *State) PlaylistActive() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	return !s.idleActive && !s.paused && slices.ContainsFunc(s.playlist, func(entry MpvPlaylistEntry) bool {
+		return entry.Playing
+	})
+}
+
 func (s *State) copyCurrentItemLocked() *QueueItem {
 	if s.currentItem == nil {
 		return nil
