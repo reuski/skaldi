@@ -652,14 +652,16 @@ func (r *Resolver) hydrateVideoTracks(ctx context.Context, tracks []Track) {
 		if hasVideoDisplayMetadata(tracks[index]) {
 			continue
 		}
-		wg.Go(func() {
+		wg.Add(1)
+		go func(index int) {
+			defer wg.Done()
 			meta, err := r.fetchVideoMetadata(ctx, tracks[index].WebpageURL)
 			if err != nil {
 				return
 			}
 			meta.Source = tracks[index].Source
 			tracks[index] = meta
-		})
+		}(index)
 	}
 	wg.Wait()
 }

@@ -347,7 +347,9 @@ func TestSearchCacheCoalescesConcurrentLoads(t *testing.T) {
 
 	var wg sync.WaitGroup
 	for range 4 {
-		wg.Go(func() {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
 			value, err := cache.GetOrLoad(context.Background(), "same-key", loader)
 			if err != nil {
 				t.Errorf("GetOrLoad failed: %v", err)
@@ -356,7 +358,7 @@ func TestSearchCacheCoalescesConcurrentLoads(t *testing.T) {
 			if value != "value" {
 				t.Errorf("value = %q, want value", value)
 			}
-		})
+		}()
 	}
 	wg.Wait()
 
