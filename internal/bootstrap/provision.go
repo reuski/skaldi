@@ -159,6 +159,11 @@ func writeShim(shimPath, ytDlpPath, bunPath string) error {
 	return os.WriteFile(shimPath, []byte(shimContent), 0o755)
 }
 
+func writeToolShim(shimPath, toolPath string) error {
+	shimContent := fmt.Sprintf("#!/bin/sh\nexec \"%s\" \"$@\"\n", toolPath)
+	return os.WriteFile(shimPath, []byte(shimContent), 0o755)
+}
+
 func useSystemTools(cfg *Config, logger *slog.Logger) error {
 	ytDlpPath, err := exec.LookPath("yt-dlp")
 	if err != nil {
@@ -170,7 +175,13 @@ func useSystemTools(cfg *Config, logger *slog.Logger) error {
 	}
 
 	logger.Debug("Using system tools", "yt-dlp", ytDlpPath, "bun", bunPath)
-	return writeShim(cfg.ShimPath(), ytDlpPath, bunPath)
+	if err := writeShim(cfg.ShimPath(), ytDlpPath, cfg.BunPath()); err != nil {
+		return err
+	}
+	if err := writeToolShim(cfg.BunPath(), bunPath); err != nil {
+		return err
+	}
+	return validateYtDlpRuntime(cfg.ShimPath())
 }
 
 func cleanupLegacyProvisioning(cfg *Config) {

@@ -66,7 +66,7 @@ in
 
       environment = {
         SKALDI_CONFIG = builtins.toString configFile;
-        XDG_CACHE_HOME = "%C";
+        XDG_CACHE_HOME = "%t";
         XDG_DATA_HOME = "%S";
         HOME = "%S";
       };
@@ -78,7 +78,6 @@ in
 
         DynamicUser = true;
         StateDirectory = "skaldi";
-        CacheDirectory = "skaldi";
         RuntimeDirectory = "skaldi";
 
         SupplementaryGroups = [ "audio" ];

@@ -128,8 +128,16 @@ func TestUseSystemTools(t *testing.T) {
 	if !strings.Contains(content, ytDlp) {
 		t.Errorf("shim missing resolved yt-dlp path: %q", content)
 	}
-	if !strings.Contains(content, "bun:"+bun) {
+	if !strings.Contains(content, "bun:"+cfg.BunPath()) {
 		t.Errorf("shim missing resolved bun path: %q", content)
+	}
+
+	bunShim, err := os.ReadFile(cfg.BunPath())
+	if err != nil {
+		t.Fatalf("bun shim not written: %v", err)
+	}
+	if !strings.Contains(string(bunShim), bun) {
+		t.Errorf("bun shim missing resolved bun path: %q", string(bunShim))
 	}
 }
 
