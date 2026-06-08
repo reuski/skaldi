@@ -221,8 +221,15 @@ func (m *Manager) start(ctx context.Context) error {
 		fmt.Sprintf("--input-ipc-server=%s", m.cfg.MpvSocket),
 		"--ytdl-format=bestaudio/best",
 		"--af=dynaudnorm",
+		"--audio-client-name=skaldi",
+		"--gapless-audio=yes",
+		"--audio-stream-silence=yes",
+		"--volume-max=100",
 		fmt.Sprintf("--script-opts=ytdl_hook-ytdl_path=%s", shimPath),
 		fmt.Sprintf("--ytdl-raw-options=%s", jsRuntime),
+	}
+	if os.Getenv("PULSE_SERVER") != "" {
+		args = append(args, "--ao=pulse")
 	}
 
 	cmd := exec.CommandContext(ctx, "mpv", args...)

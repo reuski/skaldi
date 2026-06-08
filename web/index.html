@@ -445,7 +445,7 @@
         display: flex;
         flex-direction: column;
         align-items: center;
-        gap: var(--space-1);
+        gap: 20px;
       }
 
       .transport-row {
@@ -483,34 +483,32 @@
         transform: scale(0.95);
       }
 
-      /* ---------- The knob ----------
-         Substantial, machined, precision-engineered. Single large gold hairline
-         arc (etched when idle, lit when playing) surrounding a brushed-aluminum
-         face. Preserves the --knob-fill contract set by JS. */
-
-      /* Chassis recess: the hole the knob sits in.
-         Dark outer rim (machined edge), top shadow (depth), bottom lip. */
       .volume-knob {
         --knob-fill: 280deg;
+        --knob-angle: 140deg;
+        --knob-marker-radius: 31px;
         width: 96px;
         height: 96px;
         border-radius: 50%;
         position: relative;
         border: none;
-        background: var(--recess);
+        background:
+          radial-gradient(
+            circle at 50% 54%,
+            rgba(255, 255, 255, 0.025),
+            transparent 70%
+          ),
+          var(--recess);
         box-shadow:
-          inset 0 0 0 1px #000,
-          inset 0 2px 3px rgba(0, 0, 0, 0.7),
-          inset 0 -1px 0 rgba(255, 255, 255, 0.03);
+          inset 0 1px 2px rgba(255, 255, 255, 0.03),
+          inset 0 -2px 5px rgba(0, 0, 0, 0.55);
         cursor: pointer;
         user-select: none;
         -webkit-user-select: none;
-        touch-action: manipulation;
+        touch-action: none;
         outline: none;
       }
 
-      /* Indicator arc: a clean ~2px anti-aliased ring.
-         Wide enough to render without sub-pixel shimmer on any DPR. */
       .volume-knob::before {
         content: "";
         position: absolute;
@@ -519,32 +517,46 @@
         z-index: 1;
         background: conic-gradient(
           from -140deg,
-          var(--accent) 0deg var(--knob-fill),
-          rgba(255, 255, 255, 0.03) calc(var(--knob-fill) + 0.4deg) 280deg,
+          rgba(201, 162, 74, 0.72) 0deg var(--knob-fill),
+          rgba(255, 255, 255, 0.055) calc(var(--knob-fill) + 0.35deg) 280deg,
           transparent 280deg 360deg
         );
         -webkit-mask: radial-gradient(
           farthest-side,
-          transparent calc(100% - 3.25px),
-          #000 calc(100% - 2.5px),
-          #000 calc(100% - 0.75px),
+          transparent calc(100% - 2.8px),
+          #000 calc(100% - 2px),
+          #000 calc(100% - 0.7px),
           transparent
         );
         mask: radial-gradient(
           farthest-side,
-          transparent calc(100% - 3.25px),
-          #000 calc(100% - 2.5px),
-          #000 calc(100% - 0.75px),
+          transparent calc(100% - 2.8px),
+          #000 calc(100% - 2px),
+          #000 calc(100% - 0.7px),
           transparent
         );
         pointer-events: none;
-        transition: background var(--t) ease, filter var(--t) ease;
+        opacity: 0.82;
+        transition: opacity var(--t) ease;
       }
 
-      /* Knob core: machined-aluminum face.
-         Layered lighting — radial top highlight on linear brushed gradient —
-         plus a chamfered inner rim and subtle ground shadow so it reads as a
-         solid disc resting in the recess, not a flat painted surface. */
+      .volume-knob::after {
+        content: "";
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        width: 2px;
+        height: 10px;
+        border-radius: 999px;
+        background: rgba(232, 199, 122, 0.68);
+        box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.35);
+        pointer-events: none;
+        z-index: 3;
+        transform: translate(-50%, -50%) rotate(var(--knob-angle))
+          translateY(calc(var(--knob-marker-radius) * -1));
+        transform-origin: center;
+      }
+
       .volume-knob .knob-core {
         position: absolute;
         inset: 13px;
@@ -556,20 +568,19 @@
         background:
           radial-gradient(
             ellipse 100% 45% at 50% 0%,
-            rgba(255, 255, 255, 0.09),
+            rgba(255, 255, 255, 0.11),
             transparent 65%
           ),
           linear-gradient(
-            180deg,
-            #2e2a26 0%,
-            #201e1c 50%,
-            #161412 100%
+            145deg,
+            #302c26 0%,
+            #22201c 48%,
+            #151412 100%
           );
         box-shadow:
-          inset 0 1px 0 rgba(255, 255, 255, 0.14),
-          inset 0 0 0 1px rgba(0, 0, 0, 0.35),
-          inset 0 -2px 4px rgba(0, 0, 0, 0.45),
-          0 2px 4px rgba(0, 0, 0, 0.6);
+          inset 0 1px 1px rgba(255, 255, 255, 0.1),
+          inset 0 -6px 12px rgba(0, 0, 0, 0.38),
+          0 5px 11px rgba(0, 0, 0, 0.34);
         pointer-events: none;
         transition:
           background var(--t) ease,
@@ -581,8 +592,8 @@
       .volume-knob .pause-icon {
         width: 15px;
         height: 15px;
-        color: #3a3530;
-        opacity: 0.85;
+        color: #756b5c;
+        opacity: 0.58;
         transition:
           opacity var(--t) ease,
           color var(--t) ease,
@@ -592,17 +603,24 @@
       .volume-knob.is-playing .play-icon,
       .volume-knob.is-playing .pause-icon {
         color: var(--accent-lit);
-        opacity: 1;
-        filter: drop-shadow(0 0 3px rgba(232, 199, 122, 0.45));
+        opacity: 0.92;
+        filter: drop-shadow(0 0 2px rgba(232, 199, 122, 0.28));
       }
 
       .volume-knob.is-playing::before {
-        filter: drop-shadow(0 0 4px rgba(232, 199, 122, 0.6));
+        opacity: 0.96;
       }
 
       .volume-knob:focus-visible {
-        outline: 1px solid var(--accent);
-        outline-offset: 3px;
+        outline: none;
+      }
+
+      .volume-knob:focus-visible .knob-core {
+        box-shadow:
+          inset 0 1px 1px rgba(255, 255, 255, 0.1),
+          inset 0 -6px 12px rgba(0, 0, 0, 0.38),
+          inset 0 0 0 1px rgba(232, 199, 122, 0.18),
+          0 5px 11px rgba(0, 0, 0, 0.34);
       }
 
       .volume-knob:hover .knob-core {
@@ -613,18 +631,15 @@
             transparent 65%
           ),
           linear-gradient(
-            180deg,
-            #36322c 0%,
-            #252220 50%,
-            #18161a 100%
+            145deg,
+            #343029 0%,
+            #24211d 48%,
+            #171512 100%
           );
       }
 
-      /* Pressed: sinks into the recess. Inset top shadow (light from above
-         is blocked by the front panel) + damped highlight + tighter ground
-         shadow. Combined with translateY this reads as a real button push. */
       .volume-knob:active .knob-core {
-        transform: translateY(1px) scale(0.997);
+        transform: translateY(1px) scale(0.99);
         background:
           radial-gradient(
             ellipse 100% 35% at 50% 0%,
@@ -632,41 +647,33 @@
             transparent 60%
           ),
           linear-gradient(
-            180deg,
-            #26231f 0%,
-            #1b1917 50%,
-            #131110 100%
+            145deg,
+            #292620 0%,
+            #1c1a17 48%,
+            #121110 100%
           );
         box-shadow:
-          inset 0 2px 4px rgba(0, 0, 0, 0.65),
-          inset 0 0 0 1px rgba(0, 0, 0, 0.45),
-          inset 0 -1px 0 rgba(255, 255, 255, 0.03),
-          0 1px 2px rgba(0, 0, 0, 0.7);
+          inset 0 2px 7px rgba(0, 0, 0, 0.58),
+          inset 0 -1px 0 rgba(255, 255, 255, 0.04),
+          0 2px 5px rgba(0, 0, 0, 0.34);
       }
 
       .volume-knob.is-muted::before {
         background: conic-gradient(
           from -140deg,
-          rgba(255, 255, 255, 0.12) 0deg var(--knob-fill),
-          transparent var(--knob-fill) 360deg
+          rgba(255, 255, 255, 0.11) 0deg var(--knob-fill),
+          rgba(255, 255, 255, 0.04) calc(var(--knob-fill) + 0.35deg) 280deg,
+          transparent 280deg 360deg
         );
-        filter: none;
+        opacity: 0.66;
       }
 
-      .volume-knob.is-ticking::before {
-        animation: knob-tick 140ms cubic-bezier(0.2, 0, 0, 1);
+      .volume-knob.is-muted::after {
+        background: rgba(255, 255, 255, 0.34);
       }
 
-      @keyframes knob-tick {
-        0% {
-          filter: drop-shadow(0 0 2px rgba(232, 199, 122, 0.55));
-        }
-        35% {
-          filter: drop-shadow(0 0 7px rgba(232, 199, 122, 0.95));
-        }
-        100% {
-          filter: drop-shadow(0 0 2px rgba(232, 199, 122, 0.55));
-        }
+      .volume-knob.is-ticking .knob-core {
+        transform: translateY(1px) scale(0.99);
       }
 
       .volume-badge {
@@ -965,7 +972,7 @@
         }
 
         .transport-group {
-          gap: 6px;
+          gap: 18px;
         }
 
         .transport-row {
@@ -973,6 +980,7 @@
         }
 
         .volume-knob {
+          --knob-marker-radius: 27px;
           width: 84px;
           height: 84px;
         }
@@ -990,14 +998,11 @@
       @media (prefers-reduced-motion: reduce) {
         .volume-knob,
         .volume-knob::before,
+        .volume-knob::after,
         .volume-knob .knob-core,
         .volume-knob .play-icon,
         .volume-knob .pause-icon {
           transition: none;
-        }
-
-        .volume-knob.is-ticking::before {
-          animation: none;
         }
 
         .queue-item.pending .thumb {
@@ -1180,6 +1185,8 @@
       let volumeCommitTimer = null;
       let knobTickTimer = null;
       let wheelVolumeCarry = 0;
+      let knobDrag = null;
+      let suppressKnobClick = false;
       let isDraggingQueueItem = false;
       let dragPlaceholder = null;
       let pointerDrag = {
@@ -1900,9 +1907,11 @@
         const volume = snapVolume(pendingVolume ?? rawVolume);
         const muted = pendingMute ?? !!data.muted;
         const arc = (volume / 100) * 280;
+        const angle = arc - 140;
 
         volumeKnob.dataset.volume = String(volume);
         volumeKnob.style.setProperty("--knob-fill", arc.toFixed(1) + "deg");
+        volumeKnob.style.setProperty("--knob-angle", angle.toFixed(1) + "deg");
         volumeKnob.classList.toggle("is-muted", muted);
         volumeKnob.setAttribute("aria-valuenow", String(Math.round(volume)));
         volumeKnob.setAttribute(
@@ -1923,18 +1932,21 @@
         }
       }
 
+      function commitVolume() {
+        const toSend = pendingVolume;
+        if (toSend === null) return;
+        clearTimeout(volumeCommitTimer);
+        volumeCommitTimer = null;
+        sendVolume(toSend);
+      }
+
       function scheduleVolume(value) {
         const next = snapVolume(value);
         pendingVolume = next;
         renderVolume(lastData || { volume: next, muted: displayedMuted() });
-        pulseKnob();
 
         clearTimeout(volumeCommitTimer);
-        volumeCommitTimer = setTimeout(() => {
-          const toSend = pendingVolume;
-          if (toSend === null) return;
-          sendVolume(toSend);
-        }, 70);
+        volumeCommitTimer = setTimeout(commitVolume, 70);
       }
 
       function adjustVolume(step) {
@@ -1954,6 +1966,64 @@
           if (lastData) renderVolume(lastData);
         }
       }
+
+      function dragVolume(startVolume, startY, y) {
+        const pxPerStep = Math.max(4, Math.min(8, window.innerHeight / 120));
+        return startVolume + (startY - y) / pxPerStep;
+      }
+
+      volumeKnob.addEventListener("pointerdown", (e) => {
+        if (!e.isPrimary || e.button > 0) return;
+        knobDrag = {
+          pointerId: e.pointerId,
+          startX: e.clientX,
+          startY: e.clientY,
+          startVolume: displayedVolume(),
+          active: false,
+        };
+        volumeKnob.setPointerCapture(e.pointerId);
+      });
+
+      volumeKnob.addEventListener("pointermove", (e) => {
+        if (!knobDrag || e.pointerId !== knobDrag.pointerId) return;
+
+        const dx = e.clientX - knobDrag.startX;
+        const dy = e.clientY - knobDrag.startY;
+        if (!knobDrag.active && Math.hypot(dx, dy) < 8) return;
+
+        knobDrag.active = true;
+        suppressKnobClick = true;
+        e.preventDefault();
+        scheduleVolume(
+          dragVolume(knobDrag.startVolume, knobDrag.startY, e.clientY),
+        );
+      });
+
+      function finishKnobDrag(e, cancelled = false) {
+        if (!knobDrag || e.pointerId !== knobDrag.pointerId) return;
+
+        if (knobDrag.active && !cancelled) {
+          e.preventDefault();
+          scheduleVolume(
+            dragVolume(knobDrag.startVolume, knobDrag.startY, e.clientY),
+          );
+          commitVolume();
+          setTimeout(() => {
+            suppressKnobClick = false;
+          }, 350);
+        }
+
+        if (volumeKnob.hasPointerCapture(e.pointerId)) {
+          volumeKnob.releasePointerCapture(e.pointerId);
+        }
+        knobDrag = null;
+        if (cancelled) suppressKnobClick = false;
+      }
+
+      volumeKnob.addEventListener("pointerup", finishKnobDrag);
+      volumeKnob.addEventListener("pointercancel", (e) =>
+        finishKnobDrag(e, true),
+      );
 
       volumeKnob.addEventListener(
         "wheel",
@@ -1976,7 +2046,10 @@
 
       volumeKnob.addEventListener("click", (e) => {
         e.preventDefault();
-        volumeKnob.focus();
+        if (suppressKnobClick) {
+          suppressKnobClick = false;
+          return;
+        }
         togglePlayPause();
       });
 
@@ -2795,10 +2868,6 @@
             e.preventDefault();
             togglePlayPause();
             break;
-          case "u":
-            e.preventDefault();
-            fileInput.click();
-            break;
           case "ArrowLeft":
             e.preventDefault();
             playback("previous");
@@ -2807,36 +2876,13 @@
             e.preventDefault();
             playback("skip");
             break;
-          case "ArrowUp":
-            e.preventDefault();
-            adjustVolume(2);
-            break;
-          case "ArrowDown":
-            e.preventDefault();
-            adjustVolume(-2);
-            break;
           case "+":
             e.preventDefault();
             adjustVolume(2);
             break;
-          case "=":
-            if (!e.shiftKey) break;
-            e.preventDefault();
-            adjustVolume(2);
-            break;
           case "-":
-          case "_":
             e.preventDefault();
             adjustVolume(-2);
-            break;
-          case "Delete":
-            e.preventDefault();
-            if (prev.npKey) {
-              const idx = parseInt(prev.npKey.split(":")[0], 10);
-              if (!isNaN(idx)) {
-                removeItem(idx);
-              }
-            }
             break;
           case "/":
             e.preventDefault();
