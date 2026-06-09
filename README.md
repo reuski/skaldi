@@ -94,7 +94,8 @@ Runs under a hardened `DynamicUser`, joined to the `audio` group for ALSA. PipeW
 
 ## OpenSubsonic
 
-Optional. Enable via `config.json`:
+Optional. Search a Subsonic/OpenSubsonic library (e.g. Navidrome) alongside YouTube.
+Enable via `config.json`:
 
 ```json
 {
@@ -103,11 +104,14 @@ Optional. Enable via `config.json`:
     "library_id": "personal",
     "base_url": "https://navidrome.example.com",
     "username": "alice",
-    "token": "server_token_secret",
+    "token_file": "/run/secrets/navidrome-password",
     "timeout_ms": 2500
   }
 }
 ```
+
+`token_file` points at a file containing the user's Subsonic password. If the
+file is missing/empty or any field is incomplete, OpenSubsonic is silently disabled.
 
 ## Security
 

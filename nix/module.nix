@@ -33,7 +33,7 @@ in
             library_id = "personal";
             base_url = "https://navidrome.example.com";
             username = "alice";
-            token = "server_token_secret";
+            token_file = "/run/secrets/navidrome-password";
           };
         }
       '';

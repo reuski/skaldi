@@ -5,7 +5,6 @@ package resolver
 import (
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/reuski/skaldi/internal/bootstrap"
@@ -34,14 +33,20 @@ func TestLoadOpenSubsonicConfig_MissingOrEmpty(t *testing.T) {
 }
 
 func TestLoadOpenSubsonicConfig_ValidEnabled(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "config.json")
+	dir := t.TempDir()
+	tokenPath := filepath.Join(dir, "token")
+	if err := os.WriteFile(tokenPath, []byte("secret\n"), 0o600); err != nil {
+		t.Fatalf("WriteFile token failed: %v", err)
+	}
+
+	path := filepath.Join(dir, "config.json")
 	data := []byte(`{
   "opensubsonic": {
     "enabled": true,
     "library_id": "personal",
     "base_url": "https://demo.example.com/rest/",
     "username": "alice",
-    "token": "secret"
+    "token_file": "` + tokenPath + `"
   }
 }`)
 	if err := os.WriteFile(path, data, 0o644); err != nil {
@@ -61,13 +66,21 @@ func TestLoadOpenSubsonicConfig_ValidEnabled(t *testing.T) {
 	}
 }
 
-func TestLoadOpenSubsonicConfig_InvalidEnabled(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "config.json")
+func TestLoadOpenSubsonicConfig_TokenFile(t *testing.T) {
+	dir := t.TempDir()
+	tokenPath := filepath.Join(dir, "token")
+	if err := os.WriteFile(tokenPath, []byte("filesecret\n"), 0o600); err != nil {
+		t.Fatalf("WriteFile token failed: %v", err)
+	}
+
+	path := filepath.Join(dir, "config.json")
 	data := []byte(`{
   "opensubsonic": {
     "enabled": true,
     "library_id": "personal",
-    "base_url": "https://demo.example.com"
+    "base_url": "https://demo.example.com",
+    "username": "alice",
+    "token_file": "` + tokenPath + `"
   }
 }`)
 	if err := os.WriteFile(path, data, 0o644); err != nil {
@@ -75,18 +88,49 @@ func TestLoadOpenSubsonicConfig_InvalidEnabled(t *testing.T) {
 	}
 
 	cfg, err := loadOpenSubsonicConfig(path)
-	if err == nil {
-		t.Fatalf("expected error, got cfg=%#v", cfg)
+	if err != nil {
+		t.Fatalf("loadOpenSubsonicConfig failed: %v", err)
+	}
+	if cfg == nil {
+		t.Fatal("cfg is nil")
+	} else if cfg.Token != "filesecret" {
+		t.Fatalf("Token = %q, want filesecret", cfg.Token)
 	}
 }
 
-func TestResolverNew_DisablesInvalidOpenSubsonicConfig(t *testing.T) {
+func TestLoadOpenSubsonicConfig_IncompleteSilentlyDisabled(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.json")
 	data := []byte(`{
   "opensubsonic": {
     "enabled": true,
     "library_id": "personal",
-    "base_url": "https://demo.example.com"
+    "base_url": "https://demo.example.com",
+    "username": "alice",
+    "token_file": "/nonexistent/token"
+  }
+}`)
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		t.Fatalf("WriteFile failed: %v", err)
+	}
+
+	cfg, err := loadOpenSubsonicConfig(path)
+	if err != nil {
+		t.Fatalf("loadOpenSubsonicConfig failed: %v", err)
+	}
+	if cfg != nil {
+		t.Fatalf("cfg = %#v, want nil (silent disable)", cfg)
+	}
+}
+
+func TestResolverNew_SilentlyDisablesIncompleteOpenSubsonic(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.json")
+	data := []byte(`{
+  "opensubsonic": {
+    "enabled": true,
+    "library_id": "personal",
+    "base_url": "https://demo.example.com",
+    "username": "alice",
+    "token_file": "/nonexistent/token"
   }
 }`)
 	if err := os.WriteFile(path, data, 0o644); err != nil {
@@ -100,11 +144,7 @@ func TestResolverNew_DisablesInvalidOpenSubsonicConfig(t *testing.T) {
 	if r.subsonic != nil {
 		t.Fatal("subsonic client should be disabled")
 	}
-	warnings := r.Warnings()
-	if len(warnings) != 1 {
-		t.Fatalf("warnings = %d, want 1", len(warnings))
-	}
-	if got := warnings[0].Error(); got == "" || !strings.Contains(got, "opensubsonic disabled") {
-		t.Fatalf("warning = %q, want opensubsonic disabled", got)
+	if warnings := r.Warnings(); len(warnings) != 0 {
+		t.Fatalf("warnings = %d, want 0 (silent)", len(warnings))
 	}
 }

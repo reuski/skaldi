@@ -23,8 +23,9 @@ type openSubsonicConfig struct {
 	LibraryID string `json:"library_id"`
 	BaseURL   string `json:"base_url"`
 	Username  string `json:"username"`
-	Token     string `json:"token"`
+	TokenFile string `json:"token_file"`
 	TimeoutMS int    `json:"timeout_ms"`
+	Token     string `json:"-"`
 }
 
 func loadOpenSubsonicConfig(path string) (*openSubsonicConfig, error) {
@@ -49,9 +50,15 @@ func loadOpenSubsonicConfig(path string) (*openSubsonicConfig, error) {
 		return nil, nil
 	}
 
+	if cfg.OpenSubsonic.TokenFile != "" {
+		if token, err := os.ReadFile(cfg.OpenSubsonic.TokenFile); err == nil {
+			cfg.OpenSubsonic.Token = strings.TrimSpace(string(token))
+		}
+	}
+
 	normalized, err := normalizeOpenSubsonicConfig(cfg.OpenSubsonic)
 	if err != nil {
-		return nil, err
+		return nil, nil
 	}
 
 	return &normalized, nil
@@ -71,7 +78,7 @@ func normalizeOpenSubsonicConfig(cfg openSubsonicConfig) (openSubsonicConfig, er
 		return cfg, fmt.Errorf("external opensubsonic config: username is required when enabled")
 	}
 	if cfg.Token == "" {
-		return cfg, fmt.Errorf("external opensubsonic config: token is required when enabled")
+		return cfg, fmt.Errorf("external opensubsonic config: token_file must yield a non-empty token when enabled")
 	}
 	if cfg.TimeoutMS < 0 {
 		return cfg, fmt.Errorf("external opensubsonic config: timeout_ms must be >= 0")

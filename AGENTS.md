@@ -35,6 +35,7 @@ Network jukebox. Single Go binary, embedded web UI.
 | Listen port | `SKALDI_PORT` | `server.port` | `8080` |
 | Config path | `SKALDI_CONFIG` | — | `$XDG_CONFIG_HOME/skaldi/config.json` |
 | Provision | `SKALDI_PROVISION=0` | `provision: false` | on |
+| Subsonic password | — | `opensubsonic.token_file` | — |
 
 `SKALDI_PROVISION=0` skips downloads; resolves `yt-dlp`/`bun` from `PATH` and writes the shim against them. Used by the Nix package (`flake.nix`, `nix/`).
 
