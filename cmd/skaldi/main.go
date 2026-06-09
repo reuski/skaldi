@@ -4,6 +4,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
@@ -16,11 +17,20 @@ import (
 	"github.com/reuski/skaldi/internal/player"
 	"github.com/reuski/skaldi/internal/resolver"
 	"github.com/reuski/skaldi/internal/server"
+	"github.com/reuski/skaldi/internal/update"
 	"github.com/reuski/skaldi/web"
 )
 
+var version = "dev"
+
 func main() {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
+
+	if len(os.Args) > 1 {
+		if code, handled := runCommand(logger, os.Args[1]); handled {
+			os.Exit(code)
+		}
+	}
 
 	if err := bootstrap.Run(logger); err != nil {
 		logger.Error("Provisioning failed", "error", err)
@@ -60,7 +70,7 @@ func main() {
 		}
 	}()
 
-	srv := server.New(logger, mgr, res, web.IndexHTML, port)
+	srv := server.New(logger, mgr, res, web.IndexHTML, port, version)
 
 	go func() {
 		if err := srv.Start(mdnsActive); err != nil && err != http.ErrServerClosed {
@@ -90,5 +100,21 @@ func main() {
 	select {
 	case <-playerDone:
 	case <-shutdownCtx.Done():
+	}
+}
+
+func runCommand(logger *slog.Logger, cmd string) (int, bool) {
+	switch cmd {
+	case "version", "--version", "-v":
+		fmt.Println(version)
+		return 0, true
+	case "update":
+		if err := update.Run(version, logger); err != nil {
+			logger.Error("Update failed", "error", err)
+			return 1, true
+		}
+		return 0, true
+	default:
+		return 0, false
 	}
 }

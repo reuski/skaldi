@@ -32,6 +32,34 @@ type MoveRequest struct {
 	To   int `json:"to"`
 }
 
+type healthResponse struct {
+	Status     string `json:"status"`
+	Version    string `json:"version"`
+	Playback   string `json:"playback"`
+	NowPlaying string `json:"now_playing,omitempty"`
+	Queue      int    `json:"queue"`
+}
+
+func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {
+	snap := s.player.State.Snapshot()
+
+	resp := healthResponse{
+		Status:   "ok",
+		Version:  s.version,
+		Playback: string(snap.Status),
+		Queue:    len(snap.Queue),
+	}
+	if snap.NowPlaying != nil {
+		resp.NowPlaying = snap.NowPlaying.Title
+		if resp.NowPlaying == "" {
+			resp.NowPlaying = snap.NowPlaying.Filename
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(resp)
+}
+
 func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path != "/" {
 		http.NotFound(w, r)

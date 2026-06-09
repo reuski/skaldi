@@ -35,6 +35,22 @@ go build -o skaldi ./cmd/skaldi
 
 Listens on `http://localhost:8080` (LAN URL logged on startup). First run needs network access to provision `yt-dlp` + `bun`.
 
+## CLI
+
+```bash
+skaldi
+skaldi version
+skaldi update
+```
+
+## Health endpoint
+
+`GET /health` returns JSON for uptime probes and dashboards:
+
+```json
+{ "status": "ok", "version": "v1.5.4", "playback": "playing", "now_playing": "…", "queue": 4 }
+```
+
 ## Configuration
 
 Env overrides config; config overrides defaults. Config at `$XDG_CONFIG_HOME/skaldi/config.json` (or `SKALDI_CONFIG`).

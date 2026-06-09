@@ -37,7 +37,7 @@ func setupTestServer(t *testing.T) (*Server, *player.Manager) {
 	}
 	indexHTML := []byte("<html><body>Test</body></html>")
 
-	s := New(logger, p, r, indexHTML, 0)
+	s := New(logger, p, r, indexHTML, 0, "test")
 	return s, p
 }
 
@@ -569,7 +569,7 @@ func TestNew(t *testing.T) {
 	}
 	indexHTML := []byte("<html>Test</html>")
 
-	s := New(logger, p, r, indexHTML, 8080)
+	s := New(logger, p, r, indexHTML, 8080, "test")
 
 	if s == nil {
 		t.Fatal("New() returned nil")
@@ -641,7 +641,7 @@ esac
 	if err != nil {
 		t.Fatalf("resolver.New failed: %v", err)
 	}
-	return New(logger, p, r, []byte("<html>Test</html>"), 0)
+	return New(logger, p, r, []byte("<html>Test</html>"), 0, "test")
 }
 
 func decodeSearchBatches(t *testing.T, body string) []resolver.SearchBatch {

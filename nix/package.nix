@@ -7,11 +7,12 @@
   yt-dlp,
   bun,
   avahi,
+  version,
 }:
 
 buildGoModule {
   pname = "skaldi";
-  version = "0.1.0";
+  inherit version;
 
   src = lib.fileset.toSource {
     root = ../.;
@@ -26,7 +27,11 @@ buildGoModule {
   vendorHash = null;
 
   subPackages = [ "cmd/skaldi" ];
-  ldflags = [ "-s" "-w" ];
+  ldflags = [
+    "-s"
+    "-w"
+    "-X main.version=${version}"
+  ];
 
   nativeBuildInputs = [ makeWrapper ];
 

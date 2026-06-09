@@ -21,10 +21,11 @@ type Server struct {
 	player      *player.Manager
 	resolver    *resolver.Resolver
 	indexHTML   []byte
+	version     string
 	broadcaster *Broadcaster
 }
 
-func New(logger *slog.Logger, p *player.Manager, r *resolver.Resolver, indexHTML []byte, port int) *Server {
+func New(logger *slog.Logger, p *player.Manager, r *resolver.Resolver, indexHTML []byte, port int, version string) *Server {
 	mux := http.NewServeMux()
 
 	s := &Server{
@@ -32,6 +33,7 @@ func New(logger *slog.Logger, p *player.Manager, r *resolver.Resolver, indexHTML
 		player:      p,
 		resolver:    r,
 		indexHTML:   indexHTML,
+		version:     version,
 		broadcaster: NewBroadcaster(p.StateUpdates),
 		server: &http.Server{
 			Addr:              fmt.Sprintf(":%d", port),
@@ -40,6 +42,7 @@ func New(logger *slog.Logger, p *player.Manager, r *resolver.Resolver, indexHTML
 	}
 
 	mux.HandleFunc("GET /", s.handleIndex)
+	mux.HandleFunc("GET /health", s.handleHealth)
 	mux.HandleFunc("GET /search", s.handleSearch)
 	mux.HandleFunc("POST /queue", s.handleQueue)
 	mux.HandleFunc("POST /queue/move", s.handleMove)

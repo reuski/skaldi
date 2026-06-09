@@ -2,6 +2,8 @@ set shell := ["bash", "-euo", "pipefail", "-c"]
 
 binary := "skaldi"
 legacy_darwin_go_toolchain := env_var_or_default("SKALDI_LEGACY_DARWIN_GOTOOLCHAIN", "go1.24.13")
+version := shell("git describe --tags --always --dirty 2>/dev/null || echo dev")
+ldflags := "-s -w -X main.version=" + version
 
 default: all
 
@@ -21,7 +23,7 @@ test:
 	go test -v -race ./internal/...
 
 build:
-	go build -o {{binary}} ./cmd/skaldi
+	go build -ldflags '{{ldflags}}' -o {{binary}} ./cmd/skaldi
 
 vuln:
 	go run golang.org/x/vuln/cmd/govulncheck@latest ./...
@@ -32,13 +34,13 @@ release-build-current:
 	mkdir -p dist
 	for pair in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64; do \
 	  GOOS=${pair%/*} GOARCH=${pair#*/} \
-	  go build -o dist/skaldi-${pair%/*}-${pair#*/} ./cmd/skaldi; \
+	  go build -ldflags '{{ldflags}}' -o dist/skaldi-${pair%/*}-${pair#*/} ./cmd/skaldi; \
 	done
 
 release-build-legacy-darwin:
 	mkdir -p dist
 	GOOS=darwin GOARCH=amd64 GOTOOLCHAIN={{legacy_darwin_go_toolchain}} \
-	  go build -modfile=go.legacy.mod -o dist/skaldi-darwin-amd64-macos11 ./cmd/skaldi
+	  go build -modfile=go.legacy.mod -ldflags '{{ldflags}}' -o dist/skaldi-darwin-amd64-macos11 ./cmd/skaldi
 
 clean:
 	go clean

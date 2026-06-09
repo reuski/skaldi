@@ -11,15 +11,16 @@
       linuxSystems = [ "x86_64-linux" "aarch64-linux" ];
       forSystems = systems: f: lib.genAttrs systems (system: f nixpkgs.legacyPackages.${system});
       forAllSystems = forSystems allSystems;
+      version = self.shortRev or self.dirtyShortRev or "dev";
     in
     {
       packages = forAllSystems (pkgs: rec {
-        skaldi = pkgs.callPackage ./nix/package.nix { };
+        skaldi = pkgs.callPackage ./nix/package.nix { inherit version; };
         default = skaldi;
       });
 
       overlays.default = final: _prev: {
-        skaldi = final.callPackage ./nix/package.nix { };
+        skaldi = final.callPackage ./nix/package.nix { inherit version; };
       };
 
       nixosModules.default = import ./nix/module.nix self;
