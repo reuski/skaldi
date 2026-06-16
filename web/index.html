@@ -808,6 +808,13 @@
         min-height: 56px;
       }
 
+      .suggestion-item.no-thumb::before {
+        content: "";
+        width: 48px;
+        height: 36px;
+        flex-shrink: 0;
+      }
+
       .suggest-text.typeahead-track {
         display: flex;
         align-items: center;
@@ -827,10 +834,6 @@
 
       .suggest-text.typeahead-track .queued-indicator {
         margin-left: 8px;
-      }
-
-      .suggest-text.typeahead-track .badge {
-        flex-shrink: 0;
       }
 
       /* Unified selection language: 2px gold left bar on a surface-hi wash.
@@ -907,15 +910,6 @@
         align-items: center;
         gap: 6px;
         line-height: 1.2;
-      }
-
-      .badge {
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        width: 14px;
-        height: 14px;
-        color: var(--accent);
       }
 
       .duration {
@@ -1373,17 +1367,7 @@
       }
 
       function searchHitThumb(hit) {
-        return hit.thumbnail || PLACEHOLDER;
-      }
-
-      function renderSourceBadge(source) {
-        if (source === "subsonic") {
-          return '<span class="badge library-badge"><svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-disc-3"><circle cx="12" cy="12" r="10"/><path d="M12 12h.01"/><path d="M16 12h.01"/><path d="M8 12h.01"/></svg></span>';
-        }
-        if (source === "ytmusic") {
-          return '<span class="badge music-badge"><svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-music"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg></span>';
-        }
-        return "";
+        return hit.thumbnail || "";
       }
 
       function searchHitDataAttrs(hit) {
@@ -1492,7 +1476,6 @@
           '" data-kind="hit"' +
           searchHitDataAttrs(hit) +
           ">" +
-          renderSourceBadge(hit.source) +
           '<span class="typeahead-track-line">' +
           line +
           "</span>" +
@@ -1507,26 +1490,31 @@
       function renderResultHitHTML(hit) {
         const title = escHTML(hit.title);
         const artist = escHTML(hit.artist);
+        const thumb = searchHitThumb(hit);
         const key = "queue:" + hit.queue_url;
         const isQueued = isSearchHitQueued(hit);
         const queuedClass = isQueued ? " queued" : "";
+        const thumbClass = thumb ? " has-thumb" : " no-thumb";
+        const thumbHTML = thumb
+          ? '<img src="' +
+            escAttr(thumb) +
+            '" class="sug-thumb" loading="lazy">'
+          : "";
         return (
           '<div class="suggestion-item' +
+          thumbClass +
           queuedClass +
           '" data-search-option="true" data-search-key="' +
           escAttr(key) +
           '" data-kind="hit"' +
           searchHitDataAttrs(hit) +
           ">" +
-          '<img src="' +
-          searchHitThumb(hit) +
-          '" class="sug-thumb" loading="lazy">' +
+          thumbHTML +
           '<div class="sug-info">' +
           '<div class="sug-title">' +
           title +
           "</div>" +
           '<div class="sug-artist">' +
-          renderSourceBadge(hit.source) +
           artist +
           "</div>" +
           "</div>" +
@@ -1857,6 +1845,20 @@
         void addToQueue(hit.queue_url);
         closeSuggestions({ preserveInput: false });
       });
+
+      suggestions.addEventListener(
+        "error",
+        (e) => {
+          if (!e.target.classList.contains("sug-thumb")) return;
+          const item = e.target.closest(".suggestion-item");
+          e.target.remove();
+          if (item) {
+            item.classList.remove("has-thumb");
+            item.classList.add("no-thumb");
+          }
+        },
+        true,
+      );
 
       document.addEventListener("click", (e) => {
         if (!e.target.closest(".search-container")) {

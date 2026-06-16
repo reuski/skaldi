@@ -245,6 +245,26 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func (s *Server) handleSubsonicCoverArt(w http.ResponseWriter, r *http.Request) {
+	libraryID := r.URL.Query().Get("library")
+	coverArtID := r.URL.Query().Get("id")
+	if libraryID == "" || coverArtID == "" {
+		http.Error(w, "library and id are required", http.StatusBadRequest)
+		return
+	}
+
+	data, contentType, err := s.resolver.FetchSubsonicCoverArt(r.Context(), libraryID, coverArtID)
+	if err != nil {
+		s.logger.Debug("Failed to fetch OpenSubsonic cover art", "library", libraryID, "id", coverArtID, "error", err)
+		http.Error(w, "Cover art not found", http.StatusNotFound)
+		return
+	}
+
+	w.Header().Set("Content-Type", contentType)
+	w.Header().Set("Cache-Control", "private, max-age=86400")
+	_, _ = w.Write(data)
+}
+
 func (s *Server) handlePlayback(w http.ResponseWriter, r *http.Request) {
 	var req PlaybackRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {

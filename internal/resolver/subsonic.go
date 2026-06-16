@@ -63,6 +63,7 @@ type subsonicSong struct {
 	Title    string `json:"title"`
 	Artist   string `json:"artist"`
 	Duration int    `json:"duration"`
+	CoverArt string `json:"coverArt"`
 }
 
 func (c *SubsonicClient) Search(ctx context.Context, query string, limit int) ([]Track, error) {
@@ -134,6 +135,54 @@ func (c *SubsonicClient) BuildStreamURL(trackID string) (string, error) {
 	return c.endpointURL("stream.view", params), nil
 }
 
+func (c *SubsonicClient) FetchCoverArt(ctx context.Context, coverArtID string) ([]byte, string, error) {
+	if coverArtID == "" {
+		return nil, "", fmt.Errorf("opensubsonic: cover art id is required")
+	}
+
+	params, err := c.authParams()
+	if err != nil {
+		return nil, "", err
+	}
+	params.Del("f")
+	params.Set("id", coverArtID)
+	params.Set("size", "96")
+
+	tCtx, cancel := context.WithTimeout(ctx, c.timeout)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(tCtx, http.MethodGet, c.endpointURL("getCoverArt.view", params), nil)
+	if err != nil {
+		return nil, "", err
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, "", err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 8*1024))
+		return nil, "", fmt.Errorf("opensubsonic: %s: %s", resp.Status, string(body))
+	}
+
+	data, err := io.ReadAll(io.LimitReader(resp.Body, 10*1024*1024))
+	if err != nil {
+		return nil, "", err
+	}
+	if len(data) == 0 {
+		return nil, "", fmt.Errorf("opensubsonic: empty cover art")
+	}
+
+	contentType := resp.Header.Get("Content-Type")
+	if contentType == "" {
+		contentType = http.DetectContentType(data)
+	}
+
+	return data, contentType, nil
+}
+
 func (c *SubsonicClient) songToTrack(song subsonicSong) Track {
 	artist := song.Artist
 	if artist == "" {
@@ -146,6 +195,7 @@ func (c *SubsonicClient) songToTrack(song subsonicSong) Track {
 		Artist:     artist,
 		Duration:   float64(song.Duration),
 		Uploader:   artist,
+		Thumbnail:  BuildSubsonicCoverArtPath(c.cfg.LibraryID, song.CoverArt),
 		URL:        opaque,
 		WebpageURL: opaque,
 		Source:     SourceSubsonic,

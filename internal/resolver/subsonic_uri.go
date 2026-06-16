@@ -8,7 +8,10 @@ import (
 	"strings"
 )
 
-const SubsonicURIScheme = "skaldi+subsonic"
+const (
+	SubsonicURIScheme    = "skaldi+subsonic"
+	SubsonicCoverArtPath = "/art/subsonic"
+)
 
 type SubsonicRef struct {
 	LibraryID string
@@ -17,6 +20,16 @@ type SubsonicRef struct {
 
 func BuildSubsonicURI(libraryID, trackID string) string {
 	return fmt.Sprintf("%s://%s/%s", SubsonicURIScheme, libraryID, url.PathEscape(trackID))
+}
+
+func BuildSubsonicCoverArtPath(libraryID, coverArtID string) string {
+	if libraryID == "" || coverArtID == "" {
+		return ""
+	}
+	params := url.Values{}
+	params.Set("id", coverArtID)
+	params.Set("library", libraryID)
+	return SubsonicCoverArtPath + "?" + params.Encode()
 }
 
 func ParseSubsonicURI(raw string) (SubsonicRef, bool) {

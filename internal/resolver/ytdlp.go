@@ -263,6 +263,16 @@ func (r *Resolver) Warnings() []error {
 	return out
 }
 
+func (r *Resolver) FetchSubsonicCoverArt(ctx context.Context, libraryID, coverArtID string) ([]byte, string, error) {
+	if r.subsonic == nil {
+		return nil, "", fmt.Errorf("opensubsonic source is not configured")
+	}
+	if libraryID != r.subsonic.LibraryID() {
+		return nil, "", fmt.Errorf("unknown opensubsonic library: %s", libraryID)
+	}
+	return r.subsonic.FetchCoverArt(ctx, coverArtID)
+}
+
 func ParseSearchIntent(raw string) (SearchIntent, error) {
 	switch SearchIntent(raw) {
 	case SearchIntentTypeahead, SearchIntentResults:

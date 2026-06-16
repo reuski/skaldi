@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -198,6 +199,60 @@ func TestHandleSearch_StreamsCanonicalBatchesWithoutExternalLibrary(t *testing.T
 	}
 	if !seen[resolver.SearchBucketYTMusic] {
 		t.Fatal("expected ytmusic bucket")
+	}
+}
+
+func TestHandleSearch_StreamsExternalLibraryThumbnailProxy(t *testing.T) {
+	s := setupSearchServer(t, true)
+
+	req := httptest.NewRequest(http.MethodGet, "/search?q=library%20song&intent=results", nil)
+	rr := httptest.NewRecorder()
+
+	s.handleSearch(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("Status = %d, want %d", rr.Code, http.StatusOK)
+	}
+
+	batches := decodeSearchBatches(t, rr.Body.String())
+	var external resolver.SearchBatch
+	for _, batch := range batches {
+		if batch.Bucket == resolver.SearchBucketExternal {
+			external = batch
+			break
+		}
+	}
+	if len(external.Hits) != 1 {
+		t.Fatalf("external hits = %d, want 1", len(external.Hits))
+	}
+
+	thumbURL, err := url.Parse(external.Hits[0].Thumbnail)
+	if err != nil {
+		t.Fatalf("Parse failed: %v", err)
+	}
+	if thumbURL.Path != resolver.SubsonicCoverArtPath {
+		t.Fatalf("thumbnail path = %q, want %q", thumbURL.Path, resolver.SubsonicCoverArtPath)
+	}
+	if thumbURL.Query().Get("library") != "personal" {
+		t.Fatalf("thumbnail library = %q, want personal", thumbURL.Query().Get("library"))
+	}
+	if thumbURL.Query().Get("id") != "cover-1" {
+		t.Fatalf("thumbnail id = %q, want cover-1", thumbURL.Query().Get("id"))
+	}
+
+	req = httptest.NewRequest(http.MethodGet, external.Hits[0].Thumbnail, nil)
+	rr = httptest.NewRecorder()
+
+	s.handleSubsonicCoverArt(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("Status = %d, want %d", rr.Code, http.StatusOK)
+	}
+	if rr.Header().Get("Content-Type") != "image/png" {
+		t.Fatalf("Content-Type = %q, want image/png", rr.Header().Get("Content-Type"))
+	}
+	if !bytes.Equal(rr.Body.Bytes(), []byte("png")) {
+		t.Fatalf("Body = %q, want png", rr.Body.String())
 	}
 }
 
@@ -603,16 +658,28 @@ func setupSearchServer(t *testing.T, withLibrary bool) *Server {
 
 	if withLibrary {
 		subsonicServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			_, _ = w.Write([]byte(`{"subsonic-response":{"status":"ok","searchResult3":{"song":[{"id":"lib-1","title":"Library Song","artist":"Library Artist","duration":180}]}}}`))
+			switch r.URL.Path {
+			case "/rest/search3.view":
+				_, _ = w.Write([]byte(`{"subsonic-response":{"status":"ok","searchResult3":{"song":[{"id":"lib-1","title":"Library Song","artist":"Library Artist","duration":180,"coverArt":"cover-1"}]}}}`))
+			case "/rest/getCoverArt.view":
+				w.Header().Set("Content-Type", "image/png")
+				_, _ = w.Write([]byte("png"))
+			default:
+				http.NotFound(w, r)
+			}
 		}))
 		t.Cleanup(subsonicServer.Close)
+		tokenPath := filepath.Join(t.TempDir(), "opensubsonic.token")
+		if err := os.WriteFile(tokenPath, []byte("secret"), 0o600); err != nil {
+			t.Fatalf("WriteFile failed: %v", err)
+		}
 		if err := os.WriteFile(cfg.ConfigPath, []byte(`{
   "opensubsonic": {
     "enabled": true,
     "library_id": "personal",
     "base_url": "`+subsonicServer.URL+`",
     "username": "alice",
-    "token": "secret"
+    "token_file": "`+tokenPath+`"
   }
 }`), 0o644); err != nil {
 			t.Fatalf("WriteFile failed: %v", err)
