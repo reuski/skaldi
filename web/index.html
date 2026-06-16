@@ -756,8 +756,14 @@
         background: var(--surface);
         border: 1px solid var(--rule);
         margin-top: var(--space-1);
-        max-height: 50vh;
+        max-height: var(
+          --suggestions-max-height,
+          min(50vh, calc(100dvh - 96px))
+        );
         overflow-y: auto;
+        overscroll-behavior: contain;
+        touch-action: pan-y;
+        -webkit-overflow-scrolling: touch;
         z-index: 50;
         display: none;
       }
@@ -1166,6 +1172,7 @@
       const currTimeE = $("currTime");
       const durTimeE = $("durTime");
       const form = $("addForm");
+      const searchContainer = document.querySelector(".search-container");
       const urlInput = $("urlInput");
       const fileInput = $("fileInput");
       const suggestions = $("suggestions");
@@ -1288,11 +1295,34 @@
       }
 
       function setSuggestionsOpen(isOpen) {
+        if (isOpen) syncSuggestionsMaxHeight();
         suggestions.classList.toggle("active", isOpen);
         urlInput.setAttribute("aria-expanded", isOpen ? "true" : "false");
         if (!isOpen) {
           urlInput.removeAttribute("aria-activedescendant");
         }
+      }
+
+      function syncSuggestionsMaxHeight() {
+        if (!searchContainer) return;
+        const edgeGap = 8;
+        const viewport = window.visualViewport;
+        const viewportBottom = viewport
+          ? viewport.offsetTop + viewport.height
+          : window.innerHeight;
+        const suggestionsTop = suggestions.getBoundingClientRect().top;
+        const top =
+          suggestions.classList.contains("active") && suggestionsTop > 0
+            ? suggestionsTop
+            : searchContainer.getBoundingClientRect().bottom + edgeGap;
+        const height = Math.max(
+          96,
+          Math.floor(viewportBottom - top - edgeGap),
+        );
+        suggestions.style.setProperty(
+          "--suggestions-max-height",
+          height + "px",
+        );
       }
 
       function searchOptions() {
@@ -1637,6 +1667,7 @@
 
         suggestions.innerHTML = html;
         setSuggestionsOpen(true);
+        syncSuggestionsMaxHeight();
         syncSuggestionAccessibility();
       }
 
@@ -1865,6 +1896,19 @@
           closeSuggestions({ preserveInput: true });
         }
       });
+
+      urlInput.addEventListener("focus", syncSuggestionsMaxHeight);
+      window.addEventListener("resize", syncSuggestionsMaxHeight);
+      if (window.visualViewport) {
+        window.visualViewport.addEventListener(
+          "resize",
+          syncSuggestionsMaxHeight,
+        );
+        window.visualViewport.addEventListener(
+          "scroll",
+          syncSuggestionsMaxHeight,
+        );
+      }
 
       $("prevBtn").onclick = () => playback("previous");
       $("nextBtn").onclick = () => playback("skip");
