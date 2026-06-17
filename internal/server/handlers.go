@@ -5,6 +5,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -100,16 +101,7 @@ func (s *Server) handleQueue(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	} else {
-		tracks = make([]resolver.Track, 0, len(req.Hits))
-		for _, hit := range req.Hits {
-			resolvedTracks, resolveErr := s.resolveQueueHit(r.Context(), hit)
-			if resolveErr != nil {
-				rejected++
-				s.logger.Error("Failed to queue search hit", "source", hit.Source, "queue_url", hit.QueueURL, "error", resolveErr)
-				continue
-			}
-			tracks = append(tracks, resolvedTracks...)
-		}
+		tracks, rejected = s.resolveQueueHits(r.Context(), req.Hits)
 		if len(tracks) == 0 {
 			http.Error(w, "No tracks could be queued", http.StatusBadRequest)
 			return
@@ -131,7 +123,28 @@ func (s *Server) handleQueue(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func (s *Server) resolveQueueHits(ctx context.Context, hits []resolver.SearchHit) ([]resolver.Track, int) {
+	tracks := make([]resolver.Track, 0, len(hits))
+	rejected := 0
+	for _, hit := range hits {
+		resolvedTracks, err := s.resolveQueueHit(ctx, hit)
+		if err != nil {
+			rejected++
+			s.logger.Error("Failed to queue search hit", "source", hit.Source, "queue_url", hit.QueueURL, "error", err)
+			continue
+		}
+		tracks = append(tracks, resolvedTracks...)
+	}
+	return tracks, rejected
+}
+
 func (s *Server) resolveQueueHit(ctx context.Context, hit resolver.SearchHit) ([]resolver.Track, error) {
+	if hit.Kind == resolver.SearchHitKindAlbum {
+		return nil, fmt.Errorf("album hits are not directly queueable")
+	}
+	if hit.QueueURL == "" {
+		return nil, fmt.Errorf("queue_url is required")
+	}
 	if hit.Source == resolver.SourceSubsonic {
 		return s.resolver.Resolve(ctx, hit.QueueURL)
 	}
@@ -144,6 +157,9 @@ func (s *Server) resolveQueueHit(ctx context.Context, hit resolver.SearchHit) ([
 }
 
 func queueTrackFromHit(hit resolver.SearchHit) (resolver.Track, error) {
+	if hit.Kind == resolver.SearchHitKindAlbum {
+		return resolver.Track{}, fmt.Errorf("album hits are not directly queueable")
+	}
 	if hit.QueueURL == "" {
 		return resolver.Track{}, fmt.Errorf("queue_url is required")
 	}
@@ -205,6 +221,28 @@ func (s *Server) queueTracks(tracks []resolver.Track) []resolver.Track {
 		queuedTracks = append(queuedTracks, safeTrack)
 	}
 	return queuedTracks
+}
+
+func (s *Server) handleAlbum(w http.ResponseWriter, r *http.Request) {
+	rawURL := r.URL.Query().Get("url")
+	if rawURL == "" {
+		http.Error(w, "url is required", http.StatusBadRequest)
+		return
+	}
+
+	album, err := s.resolver.Album(r.Context(), rawURL)
+	if err != nil {
+		if errors.Is(err, resolver.ErrInvalidAlbumRef) {
+			http.Error(w, "Invalid album ref", http.StatusBadRequest)
+			return
+		}
+		s.logger.Debug("Failed to resolve album", "url", rawURL, "error", err)
+		http.Error(w, "Album not found", http.StatusNotFound)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(album)
 }
 
 func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {

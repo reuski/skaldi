@@ -5,6 +5,7 @@ package server
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/json"
 	"log/slog"
 	"net/http"
@@ -222,11 +223,22 @@ func TestHandleSearch_StreamsExternalLibraryThumbnailProxy(t *testing.T) {
 			break
 		}
 	}
-	if len(external.Hits) != 1 {
-		t.Fatalf("external hits = %d, want 1", len(external.Hits))
+	if len(external.Hits) != 2 {
+		t.Fatalf("external hits = %d, want 2", len(external.Hits))
 	}
 
-	thumbURL, err := url.Parse(external.Hits[0].Thumbnail)
+	var trackHit resolver.SearchHit
+	for _, hit := range external.Hits {
+		if hit.Kind == resolver.SearchHitKindTrack {
+			trackHit = hit
+			break
+		}
+	}
+	if trackHit.ID == "" {
+		t.Fatalf("track hit not found: %#v", external.Hits)
+	}
+
+	thumbURL, err := url.Parse(trackHit.Thumbnail)
 	if err != nil {
 		t.Fatalf("Parse failed: %v", err)
 	}
@@ -253,6 +265,58 @@ func TestHandleSearch_StreamsExternalLibraryThumbnailProxy(t *testing.T) {
 	}
 	if !bytes.Equal(rr.Body.Bytes(), []byte("png")) {
 		t.Fatalf("Body = %q, want png", rr.Body.String())
+	}
+}
+
+func TestHandleAlbum_Subsonic(t *testing.T) {
+	s := setupSearchServer(t, true)
+	albumURL := resolver.BuildSubsonicAlbumURI("personal", "album-1")
+	req := httptest.NewRequest(http.MethodGet, "/album?url="+url.QueryEscape(albumURL), nil)
+	rr := httptest.NewRecorder()
+
+	s.handleAlbum(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("Status = %d, want %d: %s", rr.Code, http.StatusOK, rr.Body.String())
+	}
+
+	var album resolver.Album
+	if err := json.Unmarshal(rr.Body.Bytes(), &album); err != nil {
+		t.Fatalf("Unmarshal failed: %v", err)
+	}
+	if album.Title != "Library Album" {
+		t.Fatalf("title = %q, want Library Album", album.Title)
+	}
+	if len(album.Tracks) != 2 {
+		t.Fatalf("tracks = %d, want 2", len(album.Tracks))
+	}
+	if album.Tracks[0].QueueURL != resolver.BuildSubsonicURI("personal", "lib-1") {
+		t.Fatalf("first queue_url = %q", album.Tracks[0].QueueURL)
+	}
+}
+
+func TestHandleAlbum_InvalidRef(t *testing.T) {
+	s, _ := setupTestServer(t)
+	req := httptest.NewRequest(http.MethodGet, "/album?url="+url.QueryEscape("skaldi+subsonic://personal/track-1"), nil)
+	rr := httptest.NewRecorder()
+
+	s.handleAlbum(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("Status = %d, want %d", rr.Code, http.StatusBadRequest)
+	}
+}
+
+func TestHandleAlbum_DisabledSubsonic(t *testing.T) {
+	s, _ := setupTestServer(t)
+	albumURL := resolver.BuildSubsonicAlbumURI("personal", "album-1")
+	req := httptest.NewRequest(http.MethodGet, "/album?url="+url.QueryEscape(albumURL), nil)
+	rr := httptest.NewRecorder()
+
+	s.handleAlbum(rr, req)
+
+	if rr.Code != http.StatusNotFound {
+		t.Fatalf("Status = %d, want %d", rr.Code, http.StatusNotFound)
 	}
 }
 
@@ -307,6 +371,7 @@ func TestHandleQueue_InvalidMethod(t *testing.T) {
 
 func TestQueueTrackFromHit(t *testing.T) {
 	hit := resolver.SearchHit{
+		Kind:       resolver.SearchHitKindTrack,
 		ID:         "vid-1",
 		Source:     resolver.SourceYouTube,
 		Title:      "Song",
@@ -329,6 +394,45 @@ func TestQueueTrackFromHit(t *testing.T) {
 	}
 	if track.Uploader != hit.Artist {
 		t.Fatalf("uploader = %q, want %q", track.Uploader, hit.Artist)
+	}
+}
+
+func TestResolveQueueHitsPreservesAlbumTrackOrder(t *testing.T) {
+	s, _ := setupTestServer(t)
+	hits := []resolver.SearchHit{
+		{
+			Kind:       resolver.SearchHitKindTrack,
+			ID:         "track-1",
+			Source:     resolver.SourceYTMusic,
+			Title:      "First",
+			Artist:     "Artist",
+			Duration:   101,
+			Thumbnail:  "https://img.example/1.jpg",
+			WebpageURL: "https://music.youtube.com/watch?v=track-1",
+			QueueURL:   "https://music.youtube.com/watch?v=track-1",
+		},
+		{
+			Kind:       resolver.SearchHitKindTrack,
+			ID:         "track-2",
+			Source:     resolver.SourceYTMusic,
+			Title:      "Second",
+			Artist:     "Artist",
+			Duration:   102,
+			Thumbnail:  "https://img.example/2.jpg",
+			WebpageURL: "https://music.youtube.com/watch?v=track-2",
+			QueueURL:   "https://music.youtube.com/watch?v=track-2",
+		},
+	}
+
+	tracks, rejected := s.resolveQueueHits(context.Background(), hits)
+	if rejected != 0 {
+		t.Fatalf("rejected = %d, want 0", rejected)
+	}
+	if len(tracks) != 2 {
+		t.Fatalf("tracks = %d, want 2", len(tracks))
+	}
+	if tracks[0].ID != "track-1" || tracks[1].ID != "track-2" {
+		t.Fatalf("track order = %#v", tracks)
 	}
 }
 
@@ -660,7 +764,9 @@ func setupSearchServer(t *testing.T, withLibrary bool) *Server {
 		subsonicServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			switch r.URL.Path {
 			case "/rest/search3.view":
-				_, _ = w.Write([]byte(`{"subsonic-response":{"status":"ok","searchResult3":{"song":[{"id":"lib-1","title":"Library Song","artist":"Library Artist","duration":180,"coverArt":"cover-1"}]}}}`))
+				_, _ = w.Write([]byte(`{"subsonic-response":{"status":"ok","searchResult3":{"album":[{"id":"album-1","name":"Library Album","artist":"Library Artist","duration":360,"coverArt":"cover-album","songCount":2}],"song":[{"id":"lib-1","title":"Library Song","artist":"Library Artist","duration":180,"coverArt":"cover-1"}]}}}`))
+			case "/rest/getAlbum.view":
+				_, _ = w.Write([]byte(`{"subsonic-response":{"status":"ok","album":{"id":"album-1","name":"Library Album","artist":"Library Artist","coverArt":"cover-album","songCount":2,"song":[{"id":"lib-1","title":"Library Song","artist":"Library Artist","duration":180,"coverArt":"cover-1"},{"id":"lib-2","title":"Second Song","artist":"Library Artist","duration":181,"coverArt":"cover-2"}]}}}`))
 			case "/rest/getCoverArt.view":
 				w.Header().Set("Content-Type", "image/png")
 				_, _ = w.Write([]byte("png"))
@@ -692,13 +798,15 @@ for arg in "$@"; do
   last="$arg"
 done
 case "$last" in
-  ytsearch8:*)
+  ytsearch12:*)
     printf '%s\n' '{"id":"shared-1","title":"Test Song","uploader":"Loose Channel","duration":201,"thumbnail":"https://img.example/shared-1-youtube.jpg","webpage_url":"https://www.youtube.com/watch?v=shared-1","ie_key":"Youtube"}'
     ;;
-  https://music.youtube.com/search\?q=*)
+  https://music.youtube.com/search\?q=*#songs)
     sleep 0.05
     printf '%s\n' '{"id":"shared-1","title":"Test Song","artist":"Precise Artist","duration":201,"thumbnail":"https://img.example/shared-1.jpg","webpage_url":"https://music.youtube.com/watch?v=shared-1","ie_key":"Youtube"}'
     printf '%s\n' '{"id":"music-only-2","title":"Other Song","artist":"Other Artist","duration":202,"thumbnail":"https://img.example/music-only-2.jpg","webpage_url":"https://music.youtube.com/watch?v=music-only-2","ie_key":"Youtube"}'
+    ;;
+  https://music.youtube.com/search\?q=*#albums)
     ;;
 esac
 `)

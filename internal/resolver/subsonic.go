@@ -41,7 +41,8 @@ type subsonicSearchResponse struct {
 			Message string `json:"message"`
 		} `json:"error,omitempty"`
 		SearchResult3 struct {
-			Song []subsonicSong `json:"song"`
+			Album []subsonicAlbum `json:"album"`
+			Song  []subsonicSong  `json:"song"`
 		} `json:"searchResult3"`
 	} `json:"subsonic-response"`
 }
@@ -54,8 +55,28 @@ type subsonicGetSongResponse struct {
 	} `json:"subsonic-response"`
 }
 
+type subsonicGetAlbumResponse struct {
+	SubsonicResponse struct {
+		Status string         `json:"status"`
+		Error  *subsonicErr   `json:"error,omitempty"`
+		Album  *subsonicAlbum `json:"album,omitempty"`
+	} `json:"subsonic-response"`
+}
+
 type subsonicErr struct {
 	Message string `json:"message"`
+}
+
+type subsonicAlbum struct {
+	ID        string         `json:"id"`
+	Name      string         `json:"name"`
+	Title     string         `json:"title"`
+	Album     string         `json:"album"`
+	Artist    string         `json:"artist"`
+	Duration  int            `json:"duration"`
+	CoverArt  string         `json:"coverArt"`
+	SongCount int            `json:"songCount"`
+	Song      []subsonicSong `json:"song"`
 }
 
 type subsonicSong struct {
@@ -66,7 +87,7 @@ type subsonicSong struct {
 	CoverArt string `json:"coverArt"`
 }
 
-func (c *SubsonicClient) Search(ctx context.Context, query string, limit int) ([]Track, error) {
+func (c *SubsonicClient) Search(ctx context.Context, query string, limit int) ([]SearchHit, error) {
 	if limit <= 0 {
 		limit = 5
 	}
@@ -77,7 +98,8 @@ func (c *SubsonicClient) Search(ctx context.Context, query string, limit int) ([
 	}
 	params.Set("query", query)
 	params.Set("artistCount", "0")
-	params.Set("albumCount", "0")
+	params.Set("albumCount", strconv.Itoa(limit))
+	params.Set("albumOffset", "0")
 	params.Set("songCount", strconv.Itoa(limit))
 	params.Set("songOffset", "0")
 
@@ -93,11 +115,14 @@ func (c *SubsonicClient) Search(ctx context.Context, query string, limit int) ([
 		return nil, fmt.Errorf("opensubsonic: %s", msg)
 	}
 
-	tracks := make([]Track, 0, len(resp.SubsonicResponse.SearchResult3.Song))
-	for _, song := range resp.SubsonicResponse.SearchResult3.Song {
-		tracks = append(tracks, c.songToTrack(song))
+	hits := make([]SearchHit, 0, len(resp.SubsonicResponse.SearchResult3.Album)+len(resp.SubsonicResponse.SearchResult3.Song))
+	for _, album := range resp.SubsonicResponse.SearchResult3.Album {
+		hits = append(hits, c.albumToHit(album))
 	}
-	return tracks, nil
+	for _, song := range resp.SubsonicResponse.SearchResult3.Song {
+		hits = append(hits, searchHitFromTrack(c.songToTrack(song)))
+	}
+	return hits, nil
 }
 
 func (c *SubsonicClient) GetTrack(ctx context.Context, trackID string) (Track, error) {
@@ -123,6 +148,35 @@ func (c *SubsonicClient) GetTrack(ctx context.Context, trackID string) (Track, e
 	}
 
 	return c.songToTrack(*resp.SubsonicResponse.Song), nil
+}
+
+func (c *SubsonicClient) GetAlbum(ctx context.Context, albumID string) (Album, error) {
+	params, err := c.authParams()
+	if err != nil {
+		return Album{}, err
+	}
+	params.Set("id", albumID)
+
+	var resp subsonicGetAlbumResponse
+	if err := c.getJSON(ctx, "getAlbum.view", params, &resp); err != nil {
+		return Album{}, err
+	}
+	if resp.SubsonicResponse.Status != "ok" {
+		msg := "getAlbum failed"
+		if resp.SubsonicResponse.Error != nil && resp.SubsonicResponse.Error.Message != "" {
+			msg = resp.SubsonicResponse.Error.Message
+		}
+		return Album{}, fmt.Errorf("opensubsonic: %s", msg)
+	}
+	if resp.SubsonicResponse.Album == nil || resp.SubsonicResponse.Album.ID == "" {
+		return Album{}, fmt.Errorf("opensubsonic: album not found")
+	}
+
+	album := c.albumFromResponse(*resp.SubsonicResponse.Album)
+	if len(album.Tracks) == 0 {
+		return Album{}, fmt.Errorf("opensubsonic: album has no tracks")
+	}
+	return album, nil
 }
 
 func (c *SubsonicClient) BuildStreamURL(trackID string) (string, error) {
@@ -199,6 +253,46 @@ func (c *SubsonicClient) songToTrack(song subsonicSong) Track {
 		URL:        opaque,
 		WebpageURL: opaque,
 		Source:     SourceSubsonic,
+	}
+}
+
+func (c *SubsonicClient) albumToHit(album subsonicAlbum) SearchHit {
+	title := coalesce(album.Name, album.Title, album.Album, album.ID)
+	artist := album.Artist
+	if artist == "" {
+		artist = "OpenSubsonic"
+	}
+	return SearchHit{
+		Kind:       SearchHitKindAlbum,
+		ID:         album.ID,
+		Source:     SourceSubsonic,
+		Title:      title,
+		Artist:     artist,
+		Duration:   float64(album.Duration),
+		Thumbnail:  BuildSubsonicCoverArtPath(c.cfg.LibraryID, album.CoverArt),
+		WebpageURL: BuildSubsonicAlbumURI(c.cfg.LibraryID, album.ID),
+		TrackCount: album.SongCount,
+	}
+}
+
+func (c *SubsonicClient) albumFromResponse(src subsonicAlbum) Album {
+	hit := c.albumToHit(src)
+	tracks := make([]SearchHit, 0, len(src.Song))
+	for _, song := range src.Song {
+		tracks = append(tracks, searchHitFromTrack(c.songToTrack(song)))
+	}
+	if hit.TrackCount == 0 {
+		hit.TrackCount = len(tracks)
+	}
+	return Album{
+		Source:     hit.Source,
+		Title:      hit.Title,
+		Artist:     hit.Artist,
+		Duration:   hit.Duration,
+		Thumbnail:  hit.Thumbnail,
+		WebpageURL: hit.WebpageURL,
+		TrackCount: hit.TrackCount,
+		Tracks:     tracks,
 	}
 }
 

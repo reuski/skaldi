@@ -9,8 +9,9 @@ import (
 )
 
 const (
-	SubsonicURIScheme    = "skaldi+subsonic"
-	SubsonicCoverArtPath = "/art/subsonic"
+	SubsonicURIScheme      = "skaldi+subsonic"
+	SubsonicAlbumURIScheme = "skaldi+subsonic-album"
+	SubsonicCoverArtPath   = "/art/subsonic"
 )
 
 type SubsonicRef struct {
@@ -18,8 +19,17 @@ type SubsonicRef struct {
 	TrackID   string
 }
 
+type SubsonicAlbumRef struct {
+	LibraryID string
+	AlbumID   string
+}
+
 func BuildSubsonicURI(libraryID, trackID string) string {
 	return fmt.Sprintf("%s://%s/%s", SubsonicURIScheme, libraryID, url.PathEscape(trackID))
+}
+
+func BuildSubsonicAlbumURI(libraryID, albumID string) string {
+	return fmt.Sprintf("%s://%s/%s", SubsonicAlbumURIScheme, libraryID, url.PathEscape(albumID))
 }
 
 func BuildSubsonicCoverArtPath(libraryID, coverArtID string) string {
@@ -50,4 +60,24 @@ func ParseSubsonicURI(raw string) (SubsonicRef, bool) {
 	}
 
 	return SubsonicRef{LibraryID: libraryID, TrackID: trackID}, true
+}
+
+func ParseSubsonicAlbumURI(raw string) (SubsonicAlbumRef, bool) {
+	u, err := url.Parse(raw)
+	if err != nil || u.Scheme != SubsonicAlbumURIScheme {
+		return SubsonicAlbumRef{}, false
+	}
+
+	libraryID := strings.TrimSpace(u.Host)
+	if libraryID == "" {
+		return SubsonicAlbumRef{}, false
+	}
+
+	albumID := strings.TrimPrefix(u.Path, "/")
+	albumID, err = url.PathUnescape(albumID)
+	if err != nil || albumID == "" {
+		return SubsonicAlbumRef{}, false
+	}
+
+	return SubsonicAlbumRef{LibraryID: libraryID, AlbumID: albumID}, true
 }

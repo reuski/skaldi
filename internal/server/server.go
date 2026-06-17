@@ -44,6 +44,7 @@ func New(logger *slog.Logger, p *player.Manager, r *resolver.Resolver, indexHTML
 	mux.HandleFunc("GET /", s.handleIndex)
 	mux.HandleFunc("GET /health", s.handleHealth)
 	mux.HandleFunc("GET /search", s.handleSearch)
+	mux.HandleFunc("GET /album", s.handleAlbum)
 	mux.HandleFunc("GET "+resolver.SubsonicCoverArtPath, s.handleSubsonicCoverArt)
 	mux.HandleFunc("POST /queue", s.handleQueue)
 	mux.HandleFunc("POST /queue/move", s.handleMove)

@@ -335,6 +335,62 @@ func TestSearchResultsEmitFixedBucketsAndMergeYTMusic(t *testing.T) {
 	}
 }
 
+func TestLoadYTMusicHitsAddsEnrichedAlbumsFirst(t *testing.T) {
+	r := newResolverWithYTMusicAlbumFixture(t, "good")
+
+	hits, err := r.loadYTMusicHits(context.Background(), "test song")
+	if err != nil {
+		t.Fatalf("loadYTMusicHits failed: %v", err)
+	}
+	if len(hits) < 3 {
+		t.Fatalf("hits = %d, want album plus tracks", len(hits))
+	}
+	if hits[0].Kind != SearchHitKindAlbum {
+		t.Fatalf("first kind = %q, want album", hits[0].Kind)
+	}
+	if hits[0].Title != "Fixture Album" || hits[0].Artist != "Fixture Artist" {
+		t.Fatalf("album = %q / %q", hits[0].Title, hits[0].Artist)
+	}
+	if hits[0].TrackCount != 2 {
+		t.Fatalf("track_count = %d, want 2", hits[0].TrackCount)
+	}
+	if hits[1].Kind != SearchHitKindTrack {
+		t.Fatalf("second kind = %q, want track", hits[1].Kind)
+	}
+}
+
+func TestLoadYTMusicHitsDiscardsIncompleteAlbumRows(t *testing.T) {
+	r := newResolverWithYTMusicAlbumFixture(t, "incomplete")
+
+	hits, err := r.loadYTMusicHits(context.Background(), "test song")
+	if err != nil {
+		t.Fatalf("loadYTMusicHits failed: %v", err)
+	}
+	for _, hit := range hits {
+		if hit.Kind == SearchHitKindAlbum {
+			t.Fatalf("unexpected album hit: %#v", hit)
+		}
+	}
+	if len(hits) != 2 {
+		t.Fatalf("track hits = %d, want 2", len(hits))
+	}
+}
+
+func TestLoadYTMusicHitsKeepsTracksWhenAlbumEnrichmentFails(t *testing.T) {
+	r := newResolverWithYTMusicAlbumFixture(t, "fail")
+
+	hits, err := r.loadYTMusicHits(context.Background(), "test song")
+	if err != nil {
+		t.Fatalf("loadYTMusicHits failed: %v", err)
+	}
+	if len(hits) != 2 {
+		t.Fatalf("hits = %d, want original tracks", len(hits))
+	}
+	if hits[0].ID != "music-1" || hits[1].ID != "music-2" {
+		t.Fatalf("track ids = %#v", hits)
+	}
+}
+
 func TestSearchCacheCoalescesConcurrentLoads(t *testing.T) {
 	cache := newSearchCache[string](time.Minute, 4)
 	var calls atomic.Int32
@@ -412,11 +468,70 @@ case "$last" in
   ytsearch12:*)
     printf '%s\n' '{"id":"shared-1","title":"Test Song","uploader":"Loose Channel","duration":201,"thumbnail":"https://img.example/shared-1-youtube.jpg","webpage_url":"https://www.youtube.com/watch?v=shared-1","ie_key":"Youtube"}'
     ;;
-  https://music.youtube.com/search\?q=*)
+  https://music.youtube.com/search\?q=*#songs)
     sleep 0.05
     printf '%s\n' '{"id":"shared-1","title":"Test Song","artist":"Precise Artist, Guest Artist","duration":201,"thumbnail":"https://img.example/shared-1.jpg","webpage_url":"https://music.youtube.com/watch?v=shared-1","ie_key":"Youtube"}'
     printf '%s\n' '{"id":"music-only-2","title":"Other Song","artist":"Other Artist, Guest Artist","duration":202,"thumbnail":"https://img.example/music-only-2.jpg","webpage_url":"https://music.youtube.com/watch?v=music-only-2","ie_key":"Youtube"}'
     printf '%s\n' '{"id":"incomplete-3","title":"Missing Metadata","webpage_url":"https://music.youtube.com/watch?v=incomplete-3","ie_key":"Youtube"}'
+    ;;
+  https://music.youtube.com/search\?q=*#albums)
+    ;;
+esac
+`)
+	return r
+}
+
+func newResolverWithYTMusicAlbumFixture(t *testing.T, mode string) *Resolver {
+	t.Helper()
+	r := newTestResolver(t)
+	writeExecutable(t, r.cfg.ShimPath(), `#!/bin/sh
+last=""
+flat=0
+for arg in "$@"; do
+  if [ "$arg" = "--flat-playlist" ]; then
+    flat=1
+  fi
+  last="$arg"
+done
+case "$last" in
+  https://music.youtube.com/search\?q=*#songs)
+    printf '%s\n' '{"id":"music-1","title":"Track One","artist":"Fixture Artist","duration":181,"thumbnail":"https://img.example/music-1.jpg","webpage_url":"https://music.youtube.com/watch?v=music-1","ie_key":"Youtube"}'
+    printf '%s\n' '{"id":"music-2","title":"Track Two","artist":"Fixture Artist","duration":182,"thumbnail":"https://img.example/music-2.jpg","webpage_url":"https://music.youtube.com/watch?v=music-2","ie_key":"Youtube"}'
+    ;;
+  https://music.youtube.com/search\?q=*#albums)
+    case "`+mode+`" in
+      fail)
+        exit 7
+        ;;
+      incomplete)
+        printf '%s\n' '{"id":"album-good","webpage_url":"https://music.youtube.com/browse/album-good","ie_key":"YoutubeTab"}'
+        ;;
+      *)
+        printf '%s\n' '{"id":"album-good","title":"Fixture Album","artist":"Fixture Artist","thumbnail":"https://img.example/album.jpg","webpage_url":"https://music.youtube.com/browse/album-good","ie_key":"YoutubeTab"}'
+        ;;
+    esac
+    ;;
+  https://music.youtube.com/browse/album-good)
+    if [ "$flat" = "1" ]; then
+      case "`+mode+`" in
+        incomplete)
+          printf '%s\n' '{"id":"album-track-1","title":"Missing Metadata","webpage_url":"https://music.youtube.com/watch?v=album-track-1","ie_key":"Youtube"}'
+          ;;
+        *)
+          printf '%s\n' '{"id":"album-track-1","title":"Album Track One","artist":"Fixture Artist","duration":201,"thumbnail":"https://img.example/album-track-1.jpg","webpage_url":"https://music.youtube.com/watch?v=album-track-1","ie_key":"Youtube"}'
+          printf '%s\n' '{"id":"album-track-2","title":"Album Track Two","artist":"Fixture Artist","duration":202,"thumbnail":"https://img.example/album-track-2.jpg","webpage_url":"https://music.youtube.com/watch?v=album-track-2","ie_key":"Youtube"}'
+          ;;
+      esac
+    else
+      case "`+mode+`" in
+        incomplete)
+          printf '%s\n' '{"id":"album-track-1","title":"Album Track One","webpage_url":"https://music.youtube.com/watch?v=album-track-1","ie_key":"Youtube"}'
+          ;;
+        *)
+          printf '%s\n' '{"id":"album-track-1","title":"Album Track One","album":"Fixture Album","album_artist":"Fixture Artist","artist":"Fixture Artist","duration":201,"thumbnail":"https://img.example/album.jpg","playlist_count":2,"webpage_url":"https://music.youtube.com/watch?v=album-track-1","ie_key":"Youtube"}'
+          ;;
+      esac
+    fi
     ;;
 esac
 `)
