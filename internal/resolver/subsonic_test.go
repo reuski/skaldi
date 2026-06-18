@@ -96,7 +96,7 @@ func TestSubsonicSearchReturnsAlbumsBeforeTracks(t *testing.T) {
 			if q.Get("artistCount") != "0" || q.Get("albumCount") == "0" || q.Get("songCount") != "8" {
 				t.Fatalf("search counts = artist:%q album:%q song:%q", q.Get("artistCount"), q.Get("albumCount"), q.Get("songCount"))
 			}
-			body := `{"subsonic-response":{"status":"ok","searchResult3":{"album":[{"id":"album-1","name":"Album One","artist":"Album Artist","duration":600,"coverArt":"cover-album","songCount":2}],"song":[{"id":"track-1","title":"Track One","artist":"Track Artist","duration":180,"coverArt":"cover-track"}]}}}`
+			body := `{"subsonic-response":{"status":"ok","searchResult3":{"album":[{"id":"album-1","name":"Album One","artist":"Album Artist","duration":600,"coverArt":"cover-album","songCount":2}],"song":[{"id":"track-in-album","albumId":"album-1","title":"Album Track","artist":"Album Artist","duration":180,"coverArt":"cover-track"},{"id":"track-standalone","title":"Standalone Track","artist":"Track Artist","duration":181,"coverArt":"cover-standalone"}]}}}`
 			return &http.Response{
 				StatusCode: http.StatusOK,
 				Body:       io.NopCloser(strings.NewReader(body)),
@@ -127,7 +127,7 @@ func TestSubsonicSearchReturnsAlbumsBeforeTracks(t *testing.T) {
 	if hits[1].Kind != SearchHitKindTrack {
 		t.Fatalf("second kind = %q, want track", hits[1].Kind)
 	}
-	if hits[1].QueueURL != "skaldi+subsonic://personal/track-1" {
+	if hits[1].QueueURL != "skaldi+subsonic://personal/track-standalone" {
 		t.Fatalf("track queue_url = %q", hits[1].QueueURL)
 	}
 }

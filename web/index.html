@@ -1590,7 +1590,11 @@
         const title = escHTML(hit.title);
         const artist = escHTML(hit.artist);
         const isAlbum = searchHitKind(hit) === "album";
-        const thumb = isAlbum ? searchHitThumb(hit) : "";
+        const isVideoTrack =
+          hit.source === "youtube" || hit.source === "ytmusic";
+        const showThumb =
+          isAlbum || (isVideoTrack && searchState.intent !== "album");
+        const thumb = showThumb ? searchHitThumb(hit) : "";
         const key = isAlbum
           ? "album:" + hit.webpage_url
           : "queue:" + hit.queue_url;

@@ -322,6 +322,9 @@ func TestSearchResultsEmitFixedBucketsAndMergeYTMusic(t *testing.T) {
 	if youtubeFinal.Hits[0].QueueURL != "https://www.youtube.com/watch?v=shared-1" {
 		t.Fatalf("youtube queue_url = %q", youtubeFinal.Hits[0].QueueURL)
 	}
+	if youtubeFinal.Hits[0].Thumbnail == "" {
+		t.Fatal("youtube thumbnail is empty")
+	}
 
 	ytMusicFinal := lastBatchForBucket(batches, SearchBucketYTMusic)
 	if !ytMusicFinal.Complete {
@@ -332,6 +335,9 @@ func TestSearchResultsEmitFixedBucketsAndMergeYTMusic(t *testing.T) {
 	}
 	if ytMusicFinal.Hits[0].ID != "music-only-2" {
 		t.Fatalf("ytmusic id = %q, want music-only-2", ytMusicFinal.Hits[0].ID)
+	}
+	if ytMusicFinal.Hits[0].Thumbnail == "" {
+		t.Fatal("ytmusic thumbnail is empty")
 	}
 }
 
@@ -388,6 +394,29 @@ func TestLoadYTMusicHitsKeepsTracksWhenAlbumEnrichmentFails(t *testing.T) {
 	}
 	if hits[0].ID != "music-1" || hits[1].ID != "music-2" {
 		t.Fatalf("track ids = %#v", hits)
+	}
+}
+
+func TestLoadYTMusicHitsBackfillsIncompleteVisibleRows(t *testing.T) {
+	r := newResolverWithYTMusicAlbumFixture(t, "backfill")
+
+	hits, err := r.loadYTMusicHits(context.Background(), "backfill song")
+	if err != nil {
+		t.Fatalf("loadYTMusicHits failed: %v", err)
+	}
+	if len(hits) != resultsTrackLimit {
+		t.Fatalf("hits = %d, want %d", len(hits), resultsTrackLimit)
+	}
+	for _, hit := range hits {
+		if strings.HasPrefix(hit.ID, "missing-") {
+			t.Fatalf("incomplete hit survived: %#v", hit)
+		}
+		if hit.Thumbnail == "" {
+			t.Fatalf("thumbnail missing for %#v", hit)
+		}
+	}
+	if hits[len(hits)-1].ID != "complete-8" {
+		t.Fatalf("last hit id = %q, want complete-8", hits[len(hits)-1].ID)
 	}
 }
 
@@ -487,16 +516,37 @@ func newResolverWithYTMusicAlbumFixture(t *testing.T, mode string) *Resolver {
 	writeExecutable(t, r.cfg.ShimPath(), `#!/bin/sh
 last=""
 flat=0
+limit=""
+prev=""
 for arg in "$@"; do
+  if [ "$prev" = "--playlist-end" ]; then
+    limit="$arg"
+  fi
   if [ "$arg" = "--flat-playlist" ]; then
     flat=1
   fi
+  prev="$arg"
   last="$arg"
 done
 case "$last" in
   https://music.youtube.com/search\?q=*#songs)
-    printf '%s\n' '{"id":"music-1","title":"Track One","artist":"Fixture Artist","duration":181,"thumbnail":"https://img.example/music-1.jpg","webpage_url":"https://music.youtube.com/watch?v=music-1","ie_key":"Youtube"}'
-    printf '%s\n' '{"id":"music-2","title":"Track Two","artist":"Fixture Artist","duration":182,"thumbnail":"https://img.example/music-2.jpg","webpage_url":"https://music.youtube.com/watch?v=music-2","ie_key":"Youtube"}'
+    case "`+mode+`" in
+      backfill)
+        [ "$limit" = "12" ] || exit 9
+        printf '%s\n' '{"id":"missing-1","title":"Backfill Song","artist":"Fixture Artist","webpage_url":"https://music.youtube.com/watch?v=missing-1","ie_key":"Youtube"}'
+        printf '%s\n' '{"id":"missing-2","title":"Backfill Song","artist":"Fixture Artist","webpage_url":"https://music.youtube.com/watch?v=missing-2","ie_key":"Youtube"}'
+        i=1
+        while [ "$i" -le 8 ]; do
+          duration=$((180 + i))
+          printf '{"id":"complete-%s","title":"Backfill Song %s","artist":"Fixture Artist","duration":%s,"thumbnail":"https://img.example/complete-%s.jpg","webpage_url":"https://music.youtube.com/watch?v=complete-%s","ie_key":"Youtube"}\n' "$i" "$i" "$duration" "$i" "$i"
+          i=$((i + 1))
+        done
+        ;;
+      *)
+        printf '%s\n' '{"id":"music-1","title":"Track One","artist":"Fixture Artist","duration":181,"thumbnail":"https://img.example/music-1.jpg","webpage_url":"https://music.youtube.com/watch?v=music-1","ie_key":"Youtube"}'
+        printf '%s\n' '{"id":"music-2","title":"Track Two","artist":"Fixture Artist","duration":182,"thumbnail":"https://img.example/music-2.jpg","webpage_url":"https://music.youtube.com/watch?v=music-2","ie_key":"Youtube"}'
+        ;;
+    esac
     ;;
   https://music.youtube.com/search\?q=*#albums)
     case "`+mode+`" in
@@ -505,6 +555,9 @@ case "$last" in
         ;;
       incomplete)
         printf '%s\n' '{"id":"album-good","webpage_url":"https://music.youtube.com/browse/album-good","ie_key":"YoutubeTab"}'
+        ;;
+      backfill)
+        :
         ;;
       *)
         printf '%s\n' '{"id":"album-good","title":"Fixture Album","artist":"Fixture Artist","thumbnail":"https://img.example/album.jpg","webpage_url":"https://music.youtube.com/browse/album-good","ie_key":"YoutubeTab"}'

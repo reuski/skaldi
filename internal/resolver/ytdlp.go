@@ -595,11 +595,11 @@ func (r *Resolver) loadYTMusicHits(ctx context.Context, query string) ([]SearchH
 		if err != nil {
 			return nil, err
 		}
-		tracks = rankTracks(query, dedupeTracks(tracks, providerSearchLimit), resultsTrackLimit)
-		r.hydrateVideoTracks(tCtx, tracks)
-		complete := completeVideoTracks(tracks)
+		tracks = rankTracks(query, dedupeTracks(tracks, providerSearchLimit), providerSearchLimit)
+		target := min(resultsTrackLimit, len(tracks))
+		complete := r.completeVisibleVideoTracks(tCtx, tracks, target)
 		trackErr := error(nil)
-		if len(complete) < len(tracks) {
+		if len(complete) < target {
 			trackErr = fmt.Errorf("yt-dlp music metadata incomplete")
 		}
 
@@ -649,7 +649,7 @@ func (r *Resolver) searchYouTube(ctx context.Context, query string) ([]Track, er
 func (r *Resolver) searchMusic(ctx context.Context, query string) ([]Track, error) {
 	musicURL := "https://music.youtube.com/search?q=" + url.QueryEscape(query) + "#songs"
 	args := []string{"--dump-json", "--flat-playlist", "--no-download", "--no-warnings"}
-	args = append(args, "--playlist-end", fmt.Sprintf("%d", resultsTrackLimit))
+	args = append(args, "--playlist-end", fmt.Sprintf("%d", providerSearchLimit))
 	args = append(args, musicURL)
 
 	cmd := exec.CommandContext(ctx, r.cfg.ShimPath(), args...)
@@ -890,6 +890,19 @@ func (r *Resolver) hydrateVideoTracks(ctx context.Context, tracks []Track) {
 		}(index)
 	}
 	wg.Wait()
+}
+
+func (r *Resolver) completeVisibleVideoTracks(ctx context.Context, tracks []Track, limit int) []Track {
+	complete := make([]Track, 0, min(limit, len(tracks)))
+	for start := 0; start < len(tracks) && len(complete) < limit; {
+		missing := limit - len(complete)
+		end := min(start+missing, len(tracks))
+		batch := tracks[start:end]
+		r.hydrateVideoTracks(ctx, batch)
+		complete = append(complete, completeVideoTracks(batch)...)
+		start = end
+	}
+	return complete
 }
 
 func (r *Resolver) fetchVideoMetadata(ctx context.Context, rawURL string) (Track, error) {

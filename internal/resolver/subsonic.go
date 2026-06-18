@@ -81,6 +81,7 @@ type subsonicAlbum struct {
 
 type subsonicSong struct {
 	ID       string `json:"id"`
+	AlbumID  string `json:"albumId"`
 	Title    string `json:"title"`
 	Artist   string `json:"artist"`
 	Duration int    `json:"duration"`
@@ -116,10 +117,17 @@ func (c *SubsonicClient) Search(ctx context.Context, query string, limit int) ([
 	}
 
 	hits := make([]SearchHit, 0, len(resp.SubsonicResponse.SearchResult3.Album)+len(resp.SubsonicResponse.SearchResult3.Song))
+	albumIDs := make(map[string]struct{}, len(resp.SubsonicResponse.SearchResult3.Album))
 	for _, album := range resp.SubsonicResponse.SearchResult3.Album {
 		hits = append(hits, c.albumToHit(album))
+		if album.ID != "" {
+			albumIDs[album.ID] = struct{}{}
+		}
 	}
 	for _, song := range resp.SubsonicResponse.SearchResult3.Song {
+		if _, ok := albumIDs[song.AlbumID]; ok && song.AlbumID != "" {
+			continue
+		}
 		hits = append(hits, searchHitFromTrack(c.songToTrack(song)))
 	}
 	return hits, nil
