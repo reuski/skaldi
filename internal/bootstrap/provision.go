@@ -191,7 +191,10 @@ func cleanupLegacyProvisioning(cfg *Config) {
 }
 
 func createDirectories(cfg *Config) error {
-	for _, dir := range []string{cfg.CacheDir, cfg.BinDir, cfg.DataDir} {
+	for _, dir := range []string{cfg.CacheDir, cfg.BinDir, cfg.AppDataDir, cfg.DataDir} {
+		if dir == "" {
+			continue
+		}
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			return fmt.Errorf("failed to create directory %s: %w", dir, err)
 		}

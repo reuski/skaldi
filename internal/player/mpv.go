@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"os"
 	"os/exec"
+	"runtime"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -31,18 +32,27 @@ type Manager struct {
 	tempFiles   map[string]bool
 	tempFilesMu sync.Mutex
 
+	playbackStatePath string
+	volumeMu          sync.Mutex
+	preferAOVolume    atomic.Bool
+	preferAOMute      atomic.Bool
+
 	stopping atomic.Bool
 }
 
 func NewManager(cfg *bootstrap.Config, logger *slog.Logger) *Manager {
+	playbackStatePath := cfg.PlaybackStatePath()
+	startupVolume := loadStartupVolume(playbackStatePath, logger)
+
 	return &Manager{
-		cfg:          cfg,
-		logger:       logger,
-		ipc:          NewIPCClient(cfg.MpvSocket, logger),
-		history:      history.New(cfg.DataDir, logger),
-		State:        NewState(),
-		StateUpdates: make(chan Snapshot, 100),
-		tempFiles:    make(map[string]bool),
+		cfg:               cfg,
+		logger:            logger,
+		ipc:               NewIPCClient(cfg.MpvSocket, logger),
+		history:           history.New(cfg.DataDir, logger),
+		State:             NewStateWithVolume(startupVolume),
+		StateUpdates:      make(chan Snapshot, 100),
+		tempFiles:         make(map[string]bool),
+		playbackStatePath: playbackStatePath,
 	}
 }
 
@@ -214,6 +224,7 @@ func (m *Manager) start(ctx context.Context) error {
 	shimPath := m.cfg.ShimPath()
 	jsRuntime := fmt.Sprintf("js-runtimes=bun:%s", m.cfg.BunPath())
 
+	startupVolume := m.State.Snapshot().Volume
 	args := []string{
 		"--idle=yes",
 		"--no-video",
@@ -225,11 +236,12 @@ func (m *Manager) start(ctx context.Context) error {
 		"--gapless-audio=yes",
 		"--audio-stream-silence=yes",
 		"--volume-max=100",
+		volumeArg(startupVolume),
 		fmt.Sprintf("--script-opts=ytdl_hook-ytdl_path=%s", shimPath),
 		fmt.Sprintf("--ytdl-raw-options=%s", jsRuntime),
 	}
-	if os.Getenv("PULSE_SERVER") != "" {
-		args = append(args, "--ao=pulse")
+	if runtime.GOOS == "linux" {
+		args = append(args, "--ao=pipewire,pulse,alsa")
 	}
 
 	cmd := exec.CommandContext(ctx, "mpv", args...)
@@ -281,6 +293,85 @@ func (m *Manager) Wait() error {
 
 func (m *Manager) Exec(args ...any) (any, error) {
 	return m.ipc.Exec(args...)
+}
+
+func (m *Manager) SetVolume(volume float64) error {
+	volume = clampVolume(volume)
+
+	m.volumeMu.Lock()
+	defer m.volumeMu.Unlock()
+
+	if err := m.setPreferredVolume(volume); err != nil {
+		return err
+	}
+
+	m.State.SetVolume(volume)
+	saveStartupVolume(m.playbackStatePath, volume, m.logger)
+	m.broadcastSnapshot()
+	return nil
+}
+
+func (m *Manager) ToggleMute() error {
+	return m.SetMuted(!m.State.Snapshot().Muted)
+}
+
+func (m *Manager) SetMuted(muted bool) error {
+	m.volumeMu.Lock()
+	defer m.volumeMu.Unlock()
+
+	if err := m.setPreferredMute(muted); err != nil {
+		return err
+	}
+
+	m.State.SetMuted(muted)
+	m.broadcastSnapshot()
+	return nil
+}
+
+func (m *Manager) setPreferredVolume(volume float64) error {
+	if _, err := m.ipc.Exec("set_property", "ao-volume", volume); err == nil {
+		m.preferAOVolume.Store(true)
+		_, _ = m.ipc.Exec("set_property", "volume", 100.0)
+		return nil
+	}
+
+	_, err := m.ipc.Exec("set_property", "volume", volume)
+	return err
+}
+
+func (m *Manager) setPreferredMute(muted bool) error {
+	if _, err := m.ipc.Exec("set_property", "ao-mute", muted); err == nil {
+		m.preferAOMute.Store(true)
+		_, _ = m.ipc.Exec("set_property", "mute", false)
+		return nil
+	}
+
+	_, err := m.ipc.Exec("set_property", "mute", muted)
+	return err
+}
+
+func (m *Manager) activateAOVolume() {
+	m.volumeMu.Lock()
+	defer m.volumeMu.Unlock()
+
+	volume := m.State.Snapshot().Volume
+	if _, err := m.ipc.Exec("set_property", "ao-volume", volume); err != nil {
+		m.logger.Debug("Failed to apply output volume", "error", err)
+		return
+	}
+	_, _ = m.ipc.Exec("set_property", "volume", 100.0)
+}
+
+func (m *Manager) activateAOMute() {
+	m.volumeMu.Lock()
+	defer m.volumeMu.Unlock()
+
+	muted := m.State.Snapshot().Muted
+	if _, err := m.ipc.Exec("set_property", "ao-mute", muted); err != nil {
+		m.logger.Debug("Failed to apply output mute", "error", err)
+		return
+	}
+	_, _ = m.ipc.Exec("set_property", "mute", false)
 }
 
 func (m *Manager) PlayIndex(targetIdx int) error {

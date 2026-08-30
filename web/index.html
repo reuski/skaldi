@@ -1212,6 +1212,7 @@
     <script>
       const PLACEHOLDER =
         "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI2NCIgaGVpZ2h0PSI0OCIgc3R5bGU9ImJhY2tncm91bmQ6IzE0MTQxNCI+PC9zdmc+";
+      const DEFAULT_VOLUME = 35;
 
       let prev = {
         queueKey: null,
@@ -2147,7 +2148,7 @@
       }
 
       function clampVolume(v) {
-        if (!Number.isFinite(v)) return 100;
+        if (!Number.isFinite(v)) return DEFAULT_VOLUME;
         return Math.max(0, Math.min(100, v));
       }
 
@@ -2157,7 +2158,7 @@
 
       function displayedVolume() {
         const v = Number(volumeKnob.dataset.volume);
-        return Number.isFinite(v) ? v : 100;
+        return Number.isFinite(v) ? v : DEFAULT_VOLUME;
       }
 
       function displayedMuted() {
@@ -2176,7 +2177,8 @@
       }
 
       function renderVolume(data) {
-        const rawVolume = typeof data.volume === "number" ? data.volume : 100;
+        const rawVolume =
+          typeof data.volume === "number" ? data.volume : DEFAULT_VOLUME;
         const volume = snapVolume(pendingVolume ?? rawVolume);
         const muted = pendingMute ?? !!data.muted;
         const arc = (volume / 100) * 280;
@@ -2362,7 +2364,7 @@
         }
       });
 
-      renderVolume({ volume: 100, muted: false });
+      renderVolume({ volume: DEFAULT_VOLUME, muted: false });
 
       function fmtTime(s) {
         if (!s || isNaN(s) || s < 0) return "0:00";

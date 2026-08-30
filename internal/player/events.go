@@ -29,6 +29,8 @@ func (m *Manager) RegisterObservers() {
 		"pause",
 		"time-pos",
 		"duration",
+		"ao-volume",
+		"ao-mute",
 		"volume",
 		"mute",
 		"playlist",
@@ -58,6 +60,10 @@ func (m *Manager) handleEvent(e Event) {
 		shouldBroadcast = m.handleTimePos(e.Data)
 	case "duration":
 		shouldBroadcast = m.handleDuration(e.Data)
+	case "ao-volume":
+		shouldBroadcast = m.handleAOVolume(e.Data)
+	case "ao-mute":
+		shouldBroadcast = m.handleAOMute(e.Data)
 	case "volume":
 		shouldBroadcast = m.handleVolume(e.Data)
 	case "mute":
@@ -69,10 +75,14 @@ func (m *Manager) handleEvent(e Event) {
 	}
 
 	if shouldBroadcast {
-		select {
-		case m.StateUpdates <- m.State.Snapshot():
-		default:
-		}
+		m.broadcastSnapshot()
+	}
+}
+
+func (m *Manager) broadcastSnapshot() {
+	select {
+	case m.StateUpdates <- m.State.Snapshot():
+	default:
 	}
 }
 
@@ -112,7 +122,40 @@ func (m *Manager) handleDuration(data interface{}) bool {
 	return false
 }
 
+func (m *Manager) handleAOVolume(data interface{}) bool {
+	val, ok := data.(float64)
+	if !ok {
+		return false
+	}
+
+	if m.preferAOVolume.CompareAndSwap(false, true) {
+		go m.activateAOVolume()
+		return false
+	}
+
+	m.State.SetVolume(val)
+	return true
+}
+
+func (m *Manager) handleAOMute(data interface{}) bool {
+	val, ok := data.(bool)
+	if !ok {
+		return false
+	}
+
+	if m.preferAOMute.CompareAndSwap(false, true) {
+		go m.activateAOMute()
+		return false
+	}
+
+	m.State.SetMuted(val)
+	return true
+}
+
 func (m *Manager) handleVolume(data interface{}) bool {
+	if m.preferAOVolume.Load() {
+		return false
+	}
 	if val, ok := data.(float64); ok {
 		m.State.SetVolume(val)
 		return true
@@ -121,6 +164,9 @@ func (m *Manager) handleVolume(data interface{}) bool {
 }
 
 func (m *Manager) handleMute(data interface{}) bool {
+	if m.preferAOMute.Load() {
+		return false
+	}
 	if val, ok := data.(bool); ok {
 		m.State.SetMuted(val)
 		return true

@@ -79,11 +79,15 @@ type MpvPlaylistEntry struct {
 }
 
 func NewState() *State {
+	return NewStateWithVolume(defaultStartupVolume)
+}
+
+func NewStateWithVolume(volume float64) *State {
 	return &State{
 		metadata:    make(map[string]resolver.Track),
 		metaAddedAt: make(map[string]time.Time),
 		playlist:    []MpvPlaylistEntry{},
-		volume:      100,
+		volume:      clampVolume(volume),
 		playlistPos: -1,
 	}
 }
