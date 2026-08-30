@@ -327,9 +327,9 @@ func (s *Server) handlePlayback(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "Volume value is required", http.StatusBadRequest)
 			return
 		}
-		_, err = s.player.Exec("set_property", "volume", clampVolume(*req.Value))
+		err = s.player.SetVolume(*req.Value)
 	case "toggle_mute":
-		_, err = s.player.Exec("cycle", "mute")
+		err = s.player.ToggleMute()
 	default:
 		http.Error(w, "Invalid action", http.StatusBadRequest)
 		return
@@ -342,16 +342,6 @@ func (s *Server) handlePlayback(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.WriteHeader(http.StatusOK)
-}
-
-func clampVolume(v float64) float64 {
-	if v < 0 {
-		return 0
-	}
-	if v > 100 {
-		return 100
-	}
-	return v
 }
 
 func (s *Server) handleRemove(w http.ResponseWriter, r *http.Request) {

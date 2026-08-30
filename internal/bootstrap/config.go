@@ -18,6 +18,7 @@ type Config struct {
 	CacheDir   string
 	BinDir     string
 	MpvSocket  string
+	AppDataDir string
 	DataDir    string
 	ConfigPath string
 	Port       int
@@ -47,7 +48,8 @@ func LoadConfig() (*Config, error) {
 		}
 		dataDir = filepath.Join(home, ".local", "share")
 	}
-	historyDir := filepath.Join(dataDir, "skaldi", "history")
+	appDataDir := filepath.Join(dataDir, "skaldi")
+	historyDir := filepath.Join(appDataDir, "history")
 
 	configDir := os.Getenv("XDG_CONFIG_HOME")
 	if configDir == "" {
@@ -71,6 +73,7 @@ func LoadConfig() (*Config, error) {
 		CacheDir:   cacheDir,
 		BinDir:     filepath.Join(cacheDir, "bin"),
 		MpvSocket:  filepath.Join(cacheDir, "mpv.sock"),
+		AppDataDir: appDataDir,
 		DataDir:    historyDir,
 		ConfigPath: appConfigPath,
 		Port:       resolvePort(settings),
@@ -121,6 +124,19 @@ func resolveProvision(s Settings) bool {
 		return *s.Provision
 	}
 	return true
+}
+
+func (c *Config) PlaybackStatePath() string {
+	if c.AppDataDir != "" {
+		return filepath.Join(c.AppDataDir, "playback.json")
+	}
+	if c.DataDir != "" {
+		return filepath.Join(filepath.Dir(c.DataDir), "playback.json")
+	}
+	if c.CacheDir != "" {
+		return filepath.Join(c.CacheDir, "playback.json")
+	}
+	return ""
 }
 
 func (c *Config) BunPath() string {

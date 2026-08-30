@@ -21,6 +21,7 @@ type IPCClient struct {
 	nextReqID uint64
 	pending   map[uint64]chan Response
 	pendingMu sync.Mutex
+	writeMu   sync.Mutex
 
 	Events chan Event
 
@@ -113,7 +114,14 @@ func (c *IPCClient) Exec(args ...interface{}) (interface{}, error) {
 
 	data = append(data, '\n')
 
-	if _, err := c.conn.Write(data); err != nil {
+	if c.conn == nil {
+		return nil, fmt.Errorf("not connected")
+	}
+
+	c.writeMu.Lock()
+	_, err = c.conn.Write(data)
+	c.writeMu.Unlock()
+	if err != nil {
 		return nil, fmt.Errorf("write failed: %w", err)
 	}
 
