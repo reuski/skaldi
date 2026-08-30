@@ -4,11 +4,19 @@
 
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
 
-  outputs = { self, nixpkgs }:
+  outputs =
+    { self, nixpkgs }:
     let
       lib = nixpkgs.lib;
-      allSystems = [ "x86_64-linux" "aarch64-linux" "x86_64-darwin" "aarch64-darwin" ];
-      linuxSystems = [ "x86_64-linux" "aarch64-linux" ];
+      allSystems = [
+        "x86_64-linux"
+        "aarch64-linux"
+        "aarch64-darwin"
+      ];
+      linuxSystems = [
+        "x86_64-linux"
+        "aarch64-linux"
+      ];
       forSystems = systems: f: lib.genAttrs systems (system: f nixpkgs.legacyPackages.${system});
       forAllSystems = forSystems allSystems;
       version = self.shortRev or self.dirtyShortRev or "dev";
@@ -28,17 +36,22 @@
 
       devShells = forAllSystems (pkgs: {
         default = pkgs.mkShell {
-          packages = with pkgs; [
-            go
-            gopls
-            golangci-lint
-            just
-            mpv
-            ffmpeg
-            yt-dlp
-            bun
-            avahi
-          ];
+          packages =
+            with pkgs;
+            [
+              bun
+              ffmpeg
+              go
+              gopls
+              just
+              nixd
+              nixfmt
+              yt-dlp
+            ]
+            ++ lib.optionals stdenv.isLinux [
+              avahi
+              mpv
+            ];
         };
       });
 
@@ -46,6 +59,6 @@
         module = pkgs.testers.runNixOSTest (import ./nix/test.nix self);
       });
 
-      formatter = forAllSystems (pkgs: pkgs.nixpkgs-fmt);
+      formatter = forAllSystems (pkgs: pkgs.nixfmt);
     };
 }

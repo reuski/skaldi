@@ -1,4 +1,7 @@
 /skaldi
 /.cache/
 /bin/
+/.direnv/
+.envrc.local
+!/.envrc
 .DS_Store
