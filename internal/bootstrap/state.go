@@ -16,6 +16,7 @@ type State struct {
 
 type CachedVersions struct {
 	Versions  LatestVersions `json:"versions"`
+	Channel   string         `json:"channel"`
 	CheckedAt time.Time      `json:"checked_at"`
 }
 
