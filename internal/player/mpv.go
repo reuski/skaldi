@@ -24,8 +24,6 @@ type Manager struct {
 	ipc     *IPCClient
 	history *history.Logger
 
-	cmd *exec.Cmd
-
 	State        *State
 	StateUpdates chan Snapshot
 
@@ -37,7 +35,15 @@ type Manager struct {
 	preferAOVolume    atomic.Bool
 	preferAOMute      atomic.Bool
 
-	stopping atomic.Bool
+	stopCh   chan struct{}
+	stopOnce sync.Once
+
+	publishMu       sync.Mutex
+	stateUpdatesOff bool
+
+	loopMu   sync.Mutex
+	loopWG   sync.WaitGroup
+	loopsOff bool
 }
 
 func NewManager(cfg *bootstrap.Config, logger *slog.Logger) *Manager {
@@ -53,7 +59,40 @@ func NewManager(cfg *bootstrap.Config, logger *slog.Logger) *Manager {
 		StateUpdates:      make(chan Snapshot, 100),
 		tempFiles:         make(map[string]bool),
 		playbackStatePath: playbackStatePath,
+		stopCh:            make(chan struct{}),
 	}
+}
+
+func (m *Manager) stopRequested() bool {
+	select {
+	case <-m.stopCh:
+		return true
+	default:
+		return false
+	}
+}
+
+// Register under the stop lock so Add cannot race Wait.
+func (m *Manager) startLoop(ctx context.Context, run func(context.Context)) {
+	m.loopMu.Lock()
+	if m.loopsOff {
+		m.loopMu.Unlock()
+		return
+	}
+	m.loopWG.Add(1)
+	m.loopMu.Unlock()
+
+	go func() {
+		defer m.loopWG.Done()
+		run(ctx)
+	}()
+}
+
+func (m *Manager) stopLoops() {
+	m.loopMu.Lock()
+	m.loopsOff = true
+	m.loopMu.Unlock()
+	m.loopWG.Wait()
 }
 
 func (m *Manager) RegisterTempFile(path string) {
@@ -96,36 +135,38 @@ func (m *Manager) checkTempFiles(entries []MpvPlaylistEntry) {
 const metadataTTL = 5 * time.Minute
 
 func (m *Manager) StartMetadataGC(ctx context.Context) {
-	go func() {
+	m.startLoop(ctx, func(ctx context.Context) {
 		ticker := time.NewTicker(metadataTTL)
 		defer ticker.Stop()
 		for {
 			select {
 			case <-ctx.Done():
 				return
+			case <-m.stopCh:
+				return
 			case <-ticker.C:
 				cutoff := time.Now().Add(-metadataTTL)
 				m.State.PruneMetadataBefore(cutoff)
 			}
 		}
-	}()
+	})
 }
 
 const rotateRetry = 30 * time.Second
 
 func (m *Manager) StartDailyRotation(ctx context.Context) {
-	go func() {
+	m.startLoop(ctx, func(ctx context.Context) {
 		for {
-			if !sleep(ctx, untilNextMidnight(time.Now())) {
+			if !m.sleep(ctx, untilNextMidnight(time.Now())) {
 				return
 			}
 			for !m.rotateIfStale() {
-				if !sleep(ctx, rotateRetry) {
+				if !m.sleep(ctx, rotateRetry) {
 					return
 				}
 			}
 		}
-	}()
+	})
 }
 
 func untilNextMidnight(now time.Time) time.Duration {
@@ -134,11 +175,16 @@ func untilNextMidnight(now time.Time) time.Duration {
 	return time.Until(next)
 }
 
-func sleep(ctx context.Context, d time.Duration) bool {
+func (m *Manager) sleep(ctx context.Context, d time.Duration) bool {
+	timer := time.NewTimer(d)
+	defer timer.Stop()
+
 	select {
 	case <-ctx.Done():
 		return false
-	case <-time.After(d):
+	case <-m.stopCh:
+		return false
+	case <-timer.C:
 		return true
 	}
 }
@@ -168,36 +214,44 @@ func (m *Manager) Run(ctx context.Context) error {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		if m.stopping.Load() {
+		if m.stopRequested() {
 			return nil
 		}
 
-		if err := m.start(ctx); err != nil {
-			if m.stopping.Load() {
+		proc, err := m.start(ctx)
+		if err != nil {
+			if m.stopRequested() {
 				return nil
+			}
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				return ctxErr
 			}
 			m.logger.Error("Failed to start mpv", "error", err)
 			select {
 			case <-ctx.Done():
 				return ctx.Err()
+			case <-m.stopCh:
+				return nil
 			case <-time.After(2 * time.Second):
 				continue
 			}
 		}
 
-		if err := m.cmd.Wait(); err != nil {
-			if !m.stopping.Load() {
+		if err := proc.wait(); err != nil {
+			if !m.stopRequested() {
 				m.logger.Warn("mpv exited unexpectedly", "error", err)
 			}
 		}
 
-		if m.stopping.Load() {
+		if m.stopRequested() {
 			return nil
 		}
 
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
+		case <-m.stopCh:
+			return nil
 		case <-time.After(1 * time.Second):
 			continue
 		}
@@ -205,20 +259,56 @@ func (m *Manager) Run(ctx context.Context) error {
 }
 
 func (m *Manager) Stop() {
-	m.stopping.Store(true)
-	if m.ipc != nil {
-		_, _ = m.ipc.Exec("quit")
-		m.ipc.Close()
-	}
-	if m.history != nil {
-		m.history.Close()
-	}
-	close(m.StateUpdates)
+	m.stopOnce.Do(func() {
+		close(m.stopCh)
+
+		if m.ipc != nil {
+			_, _ = m.ipc.Exec("quit")
+			m.ipc.Close()
+		}
+
+		// Join publishers before closing history and StateUpdates.
+		m.stopLoops()
+
+		if m.history != nil {
+			m.history.Close()
+		}
+
+		m.closeStateUpdates()
+	})
 }
 
-func (m *Manager) start(ctx context.Context) error {
+const socketReadyTimeout = 15 * time.Second
+
+// One goroutine owns Wait, including failed-start reaping.
+type mpvProcess struct {
+	cmd  *exec.Cmd
+	done chan struct{}
+	err  error
+}
+
+func newMpvProcess(cmd *exec.Cmd) *mpvProcess {
+	p := &mpvProcess{cmd: cmd, done: make(chan struct{})}
+	go func() {
+		p.err = cmd.Wait()
+		close(p.done)
+	}()
+	return p
+}
+
+func (p *mpvProcess) wait() error {
+	<-p.done
+	return p.err
+}
+
+func (p *mpvProcess) kill() {
+	_ = p.cmd.Process.Kill()
+	<-p.done
+}
+
+func (m *Manager) start(ctx context.Context) (*mpvProcess, error) {
 	if _, err := os.Stat(m.cfg.MpvSocket); err == nil {
-		os.Remove(m.cfg.MpvSocket)
+		_ = os.Remove(m.cfg.MpvSocket)
 	}
 
 	shimPath := m.cfg.ShimPath()
@@ -250,45 +340,47 @@ func (m *Manager) start(ctx context.Context) error {
 
 	m.logger.Debug("Starting mpv", "args", args)
 	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("failed to start mpv: %w", err)
+		return nil, fmt.Errorf("failed to start mpv: %w", err)
 	}
-	m.cmd = cmd
+	proc := newMpvProcess(cmd)
 
-	if err := m.waitForSocket(ctx); err != nil {
-		_ = cmd.Process.Kill()
-		return err
+	if err := m.waitForSocket(ctx, proc); err != nil {
+		proc.kill()
+		return nil, err
 	}
 
 	if err := m.ipc.Connect(); err != nil {
-		_ = cmd.Process.Kill()
-		return fmt.Errorf("failed to connect IPC: %w", err)
+		proc.kill()
+		return nil, fmt.Errorf("failed to connect IPC: %w", err)
 	}
 
 	m.RegisterObservers()
-	return nil
+	return proc, nil
 }
 
-func (m *Manager) waitForSocket(ctx context.Context) error {
+func (m *Manager) waitForSocket(ctx context.Context, proc *mpvProcess) error {
 	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
+	deadline := time.NewTimer(socketReadyTimeout)
+	defer deadline.Stop()
 
 	for {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
+		case <-proc.done:
+			if err := proc.err; err != nil {
+				return fmt.Errorf("mpv exited before its IPC socket was ready: %w", err)
+			}
+			return fmt.Errorf("mpv exited before its IPC socket was ready")
+		case <-deadline.C:
+			return fmt.Errorf("timed out after %s waiting for the mpv IPC socket", socketReadyTimeout)
 		case <-ticker.C:
 			if _, err := os.Stat(m.cfg.MpvSocket); err == nil {
 				return nil
 			}
-			if m.cmd.ProcessState != nil && m.cmd.ProcessState.Exited() {
-				return fmt.Errorf("mpv exited prematurely")
-			}
 		}
 	}
-}
-
-func (m *Manager) Wait() error {
-	return m.cmd.Wait()
 }
 
 func (m *Manager) Exec(args ...any) (any, error) {

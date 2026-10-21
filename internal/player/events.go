@@ -10,17 +10,20 @@ import (
 	"github.com/reuski/skaldi/internal/history"
 )
 
+// Stop joins this loop before closing state publication.
 func (m *Manager) StartEventLoop(ctx context.Context) {
-	go func() {
+	m.startLoop(ctx, func(ctx context.Context) {
 		for {
 			select {
 			case <-ctx.Done():
+				return
+			case <-m.stopCh:
 				return
 			case event := <-m.ipc.Events:
 				m.handleEvent(event)
 			}
 		}
-	}()
+	})
 }
 
 func (m *Manager) RegisterObservers() {
@@ -45,7 +48,14 @@ func (m *Manager) RegisterObservers() {
 }
 
 func (m *Manager) handleEvent(e Event) {
-	if e.Event != "property-change" {
+	switch e.Event {
+	case "end-file":
+		if m.handleEndFile(e) {
+			m.broadcastSnapshot()
+		}
+		return
+	case "property-change":
+	default:
 		return
 	}
 
@@ -79,11 +89,58 @@ func (m *Manager) handleEvent(e Event) {
 	}
 }
 
+// Serialize capture and publication so older snapshots cannot overwrite newer ones.
 func (m *Manager) broadcastSnapshot() {
-	select {
-	case m.StateUpdates <- m.State.Snapshot():
-	default:
+	m.publishMu.Lock()
+	defer m.publishMu.Unlock()
+
+	if m.stateUpdatesOff {
+		return
 	}
+	m.publishSnapshotLocked(m.State.Snapshot())
+}
+
+// Replace stale full snapshots under pressure so clients receive terminal state.
+func (m *Manager) publishSnapshotLocked(s Snapshot) {
+	for {
+		select {
+		case m.StateUpdates <- s:
+			return
+		default:
+		}
+
+		select {
+		case <-m.StateUpdates:
+			continue
+		default:
+		}
+
+		if cap(m.StateUpdates) == 0 {
+			return
+		}
+
+		// A concurrent consumer emptied the buffer; retry while publishMu excludes producers.
+	}
+}
+
+func (m *Manager) closeStateUpdates() {
+	m.publishMu.Lock()
+	defer m.publishMu.Unlock()
+
+	if m.stateUpdatesOff {
+		return
+	}
+	m.stateUpdatesOff = true
+	close(m.StateUpdates)
+}
+
+func (m *Manager) handleEndFile(e Event) bool {
+	if e.Reason != "error" {
+		return false
+	}
+	m.logger.Debug("mpv reported a playback error", "entry_id", e.PlaylistEntryID)
+	m.State.RecordPlaybackFailure(e.PlaylistEntryID)
+	return true
 }
 
 func (m *Manager) handleIdleActive(data interface{}) bool {
