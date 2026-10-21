@@ -64,7 +64,7 @@ func download(url, exe string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		return "", fmt.Errorf("download %s: %s", url, resp.Status)
 	}
@@ -74,7 +74,7 @@ func download(url, exe string) (string, error) {
 		return "", err
 	}
 	if _, err := io.Copy(tmp, resp.Body); err != nil {
-		tmp.Close()
+		_ = tmp.Close()
 		_ = os.Remove(tmp.Name())
 		return "", err
 	}
@@ -101,7 +101,7 @@ func latestTag() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		return "", fmt.Errorf("GitHub API returned %s for %s", resp.Status, repo)
 	}

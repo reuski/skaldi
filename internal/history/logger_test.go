@@ -24,7 +24,7 @@ func readSession(t *testing.T, dir string) []Record {
 	if err != nil {
 		t.Fatalf("open: %v", err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	var records []Record
 	scanner := bufio.NewScanner(f)

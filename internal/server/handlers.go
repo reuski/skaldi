@@ -404,7 +404,7 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Invalid file", http.StatusBadRequest)
 		return
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	tempDir := os.TempDir()
 	if _, err := os.Stat("/dev/shm"); err == nil {
@@ -419,7 +419,7 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Failed to save file", http.StatusInternalServerError)
 		return
 	}
-	defer dst.Close()
+	defer func() { _ = dst.Close() }()
 
 	if _, err := io.Copy(dst, file); err != nil {
 		http.Error(w, "Failed to save file", http.StatusInternalServerError)
@@ -436,7 +436,7 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 
 	if _, err := s.player.Exec("loadfile", dstPath, "append-play"); err != nil {
 		http.Error(w, "Failed to enqueue", http.StatusInternalServerError)
-		os.Remove(dstPath)
+		_ = os.Remove(dstPath)
 		return
 	}
 

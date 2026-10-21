@@ -34,7 +34,7 @@ func TestResolvePort(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			if tt.env == "" {
 				t.Setenv("SKALDI_PORT", "")
-				os.Unsetenv("SKALDI_PORT")
+				_ = os.Unsetenv("SKALDI_PORT")
 			} else {
 				t.Setenv("SKALDI_PORT", tt.env)
 			}
@@ -64,7 +64,7 @@ func TestResolveProvision(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			os.Unsetenv("SKALDI_PROVISION")
+			_ = os.Unsetenv("SKALDI_PROVISION")
 			if tt.setEnv {
 				t.Setenv("SKALDI_PROVISION", tt.env)
 			}

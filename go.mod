@@ -1,3 +1,3 @@
 module github.com/reuski/skaldi
 
-go 1.26
+go 1.27.1

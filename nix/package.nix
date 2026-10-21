@@ -1,6 +1,6 @@
 {
   lib,
-  buildGoModule,
+  buildGoLatestModule,
   makeWrapper,
   mpv,
   ffmpeg,
@@ -10,7 +10,7 @@
   version,
 }:
 
-buildGoModule {
+buildGoLatestModule {
   pname = "skaldi";
   inherit version;
 

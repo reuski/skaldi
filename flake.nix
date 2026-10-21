@@ -41,14 +41,14 @@
             [
               bun
               ffmpeg
-              go
+              go_latest
               gopls
               just
               nixd
               nixfmt
               yt-dlp
             ]
-            ++ lib.optionals stdenv.isLinux [
+            ++ lib.optionals stdenv.hostPlatform.isLinux [
               avahi
               mpv
             ];

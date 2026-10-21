@@ -16,7 +16,7 @@ func ExtractZipTree(archivePath, destDir string) error {
 	if err != nil {
 		return fmt.Errorf("failed to open zip archive: %w", err)
 	}
-	defer r.Close()
+	defer func() { _ = r.Close() }()
 
 	root, err := filepath.Abs(destDir)
 	if err != nil {
@@ -53,7 +53,7 @@ func extractZipFile(f *zip.File, path string) error {
 	if err != nil {
 		return fmt.Errorf("failed to open file inside zip: %w", err)
 	}
-	defer rc.Close()
+	defer func() { _ = rc.Close() }()
 
 	mode := f.Mode().Perm()
 	if mode == 0 {
@@ -64,7 +64,7 @@ func extractZipFile(f *zip.File, path string) error {
 		return fmt.Errorf("failed to create output file %s: %w", path, err)
 	}
 	if _, err := io.Copy(outFile, rc); err != nil {
-		outFile.Close()
+		_ = outFile.Close()
 		return fmt.Errorf("failed to copy content: %w", err)
 	}
 	return outFile.Close()
@@ -75,7 +75,7 @@ func ExtractZip(archivePath, fileName, destPath string) error {
 	if err != nil {
 		return fmt.Errorf("failed to open zip archive: %w", err)
 	}
-	defer r.Close()
+	defer func() { _ = r.Close() }()
 
 	for _, f := range r.File {
 		if filepath.Base(f.Name) == fileName {
@@ -83,7 +83,7 @@ func ExtractZip(archivePath, fileName, destPath string) error {
 			if err != nil {
 				return fmt.Errorf("failed to open file inside zip: %w", err)
 			}
-			defer rc.Close()
+			defer func() { _ = rc.Close() }()
 
 			outFile, err := os.Create(destPath)
 			if err != nil {
@@ -91,10 +91,12 @@ func ExtractZip(archivePath, fileName, destPath string) error {
 			}
 
 			if _, err := io.Copy(outFile, rc); err != nil {
-				outFile.Close()
+				_ = outFile.Close()
 				return fmt.Errorf("failed to copy content: %w", err)
 			}
-			outFile.Close()
+			if err := outFile.Close(); err != nil {
+				return err
+			}
 
 			return os.Chmod(destPath, 0755)
 		}

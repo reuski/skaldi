@@ -67,7 +67,7 @@ func (m *Manager) CleanupTempFiles() {
 	defer m.tempFilesMu.Unlock()
 
 	for path := range m.tempFiles {
-		os.Remove(path)
+		_ = os.Remove(path)
 	}
 	m.tempFiles = make(map[string]bool)
 }
@@ -87,7 +87,7 @@ func (m *Manager) checkTempFiles(entries []MpvPlaylistEntry) {
 
 	for path := range m.tempFiles {
 		if !inPlaylist[path] {
-			os.Remove(path)
+			_ = os.Remove(path)
 			delete(m.tempFiles, path)
 		}
 	}

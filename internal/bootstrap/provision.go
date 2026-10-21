@@ -75,7 +75,7 @@ func installYtDlp(cfg *Config, version string) error {
 
 	url := ConstructYtDlpURL(version, info.YtDlpArtifact)
 	archivePath := filepath.Join(cfg.CacheDir, "yt-dlp_download.tmp")
-	defer os.Remove(archivePath)
+	defer func() { _ = os.Remove(archivePath) }()
 	if err := DownloadFile(url, archivePath); err != nil {
 		return err
 	}
@@ -122,7 +122,7 @@ func installBun(cfg *Config, version string) error {
 
 	url := ConstructBunURL(version, info.BunArtifact)
 	tmpFile := filepath.Join(cfg.CacheDir, "bun_download.tmp")
-	defer os.Remove(tmpFile)
+	defer func() { _ = os.Remove(tmpFile) }()
 
 	if err := DownloadFile(url, tmpFile); err != nil {
 		return err

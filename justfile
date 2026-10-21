@@ -16,7 +16,7 @@ fmt-check:
 	test -z "$(gofmt -l .)"
 
 lint: fmt-check
-	go run github.com/golangci/golangci-lint/cmd/golangci-lint@latest run
+	go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest run
 	go vet ./...
 
 test:
