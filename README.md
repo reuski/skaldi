@@ -2,23 +2,14 @@
 
 ![CI](https://github.com/reuski/skaldi/actions/workflows/ci.yml/badge.svg) ![Release](https://img.shields.io/github/v/release/reuski/skaldi?style=flat-square) ![Go Report Card](https://goreportcard.com/badge/github.com/reuski/skaldi?style=flat-square)
 
-Self-hosted network jukebox. One Go binary, one embedded web UI, zero external Go dependencies.
+Self-hosted network jukebox: one Go binary, one embedded web UI, zero external Go dependencies. `mpv` plays locally; browsers on your LAN control the queue.
 
-Runs `mpv` locally, serves a browser UI on your LAN, and provisions self-contained `yt-dlp` + `bun` runtimes into `~/.cache/skaldi/` on first run. No system Python or package manager required.
-
-## Features
-
-- Queue URLs or upload local files
-- Search YouTube and YouTube Music
-- Optional OpenSubsonic library search
-- Real-time state sync over SSE
-- Queue reordering, history, volume, mute
-- mDNS advertising at `skaldi.local`
+Supported sources are YouTube and YouTube Music links and search, tracks from a configured OpenSubsonic library, and local file uploads. Other URLs are rejected. Queue reordering, history, volume, mute, SSE state sync and mDNS (`skaldi.local`) are built in.
 
 ## Requirements
 
-- `mpv`, `ffmpeg`
-- Go `1.26+` to build from source
+- `mpv`, `ffmpeg` (and `avahi` for mDNS on Linux)
+- Go `1.27.1+` to build from source
 
 ```bash
 brew install mpv ffmpeg                  # macOS
@@ -26,76 +17,59 @@ sudo pacman -S mpv ffmpeg avahi          # Arch
 sudo apt install mpv ffmpeg avahi-utils  # Debian/Ubuntu
 ```
 
-## Quick Start
+CI and releases resolve the latest Go patch release. The macOS 11 amd64 release artifact is the one exception: `just release-build-legacy-darwin` builds it with the last compatible toolchain (Go 1.24) from `go.legacy.mod`.
 
-```bash
-go build -o skaldi ./cmd/skaldi
-./skaldi
-```
+## Quick start
 
-Listens on `http://localhost:8080` (LAN URL logged on startup). First run needs network access to provision `yt-dlp` + `bun`.
-
-## CLI
-
-```bash
-skaldi
-skaldi version
-skaldi update
-```
-
-## Health endpoint
-
-`GET /health` returns JSON for uptime probes and dashboards:
-
-```json
-{ "status": "ok", "version": "v1.5.4", "playback": "playing", "now_playing": "…", "queue": 4 }
-```
+Build with `go build -o skaldi ./cmd/skaldi` and run `./skaldi`. It listens on `http://localhost:8080` and logs the LAN URL at startup; the first run downloads the managed runtimes, so it needs network access. `skaldi version` and `skaldi update` are also available, and `GET /health` returns JSON with `status`, `version`, `playback`, `now_playing` and `queue`.
 
 ## Configuration
 
-Env overrides config; config overrides defaults. Config at `$XDG_CONFIG_HOME/skaldi/config.json` (or `SKALDI_CONFIG`).
+Env overrides `config.json`; `config.json` overrides defaults. The file lives at `$XDG_CONFIG_HOME/skaldi/config.json` or `$SKALDI_CONFIG`.
 
-| Setting | Env | `config.json` | Default |
-|---|---|---|---|
-| Listen port | `SKALDI_PORT` | `server.port` | `8080` |
-| Provision | `SKALDI_PROVISION=0` | `provision: false` | on |
+| Setting     | Env                  | `config.json`      | Default |
+| ----------- | -------------------- | ------------------ | ------- |
+| Listen port | `SKALDI_PORT`        | `server.port`      | `8080`  |
+| Provision   | `SKALDI_PROVISION=0` | `provision: false` | on      |
 
-**Provisioning bypass** — set `SKALDI_PROVISION=0` and put `yt-dlp` + `bun` on `PATH` (alongside `mpv`, `ffmpeg`). Skaldi uses them directly and skips all downloads.
+With `SKALDI_PROVISION=0`, `yt-dlp` and `bun` must be on `PATH` (next to `mpv`/`ffmpeg`). Skaldi shims them directly, downloads nothing, and leaves their versions to your package manager.
+
+## Managed runtimes
+
+| Runtime  | Upstream                       | Channel               |
+| -------- | ------------------------------ | --------------------- |
+| `yt-dlp` | `yt-dlp/yt-dlp-nightly-builds` | nightly               |
+| `bun`    | `oven-sh/bun`                  | latest normal release |
+
+Both install into `~/.cache/skaldi/bin/`. Nightly `yt-dlp` is upstream's recommendation because streaming-site changes break stable first; expect the occasional ~40 MB download. Startup checks each upstream once and independently — a failure on one never hides a new version of the other. There is no background updater and no configurable source.
+
+If a check or download fails because the network or upstream is unavailable, Skaldi falls back to the last check recorded for the same channel, then to the runtime recorded in `versions.json`. A reused runtime is re-verified before use: `yt-dlp` must keep its unpacked layout and pass a startup `--version` performance check, `bun` must pass a bounded `--version` probe. Startup logs a warning because the latest version is no longer guaranteed.
+
+Provisioning fails fast when nothing usable remains: no recorded runtime, a missing or broken binary, a failed validation, a corrupt archive, a malformed release record, or a version that cannot be recorded. A failed update never advances the recorded version.
 
 ## NixOS
 
-Flake ships a self-contained package and a NixOS module. The packaged binary is wrapped with `mpv`, `ffmpeg`, `yt-dlp`, `bun`, `avahi` from the store and runs with `SKALDI_PROVISION=0` — never downloads anything.
-
-```bash
-nix run github:reuski/skaldi
-```
+The flake ships a package and a NixOS module, runnable with `nix run github:reuski/skaldi`. The packaged binary is wrapped with `mpv`, `ffmpeg`, `yt-dlp`, `bun` and `avahi` from the store and runs with `SKALDI_PROVISION=0`, so it never downloads anything at runtime. The package uses nixpkgs' latest Go selectors; `flake.lock` pins a reproducible `nixos-unstable` snapshot that is refreshed by daily update PRs (`nix flake update` locally).
 
 ```nix
 {
   inputs.skaldi.url = "github:reuski/skaldi";
-
-  # in your nixosConfiguration modules:
   imports = [ skaldi.nixosModules.default ];
 
   services.skaldi = {
     enable = true;
     openFirewall = true;
-    settings = {
-      server.port = 8080;
-      # opensubsonic = { enabled = true; library_id = "personal"; ... };
-    };
+    settings.server.port = 8080;
   };
-
-  services.avahi.enable = true; # for skaldi.local
+  services.avahi.enable = true; # skaldi.local
 }
 ```
 
-Runs under a hardened `DynamicUser`, joined to the `audio` group for ALSA. PipeWire/PulseAudio may need extra wiring — override `systemd.services.skaldi.environment` (e.g. `PULSE_SERVER`) or `serviceConfig.SupplementaryGroups`.
+The service runs under a hardened `DynamicUser` in the `audio` group. PipeWire/PulseAudio may need `systemd.services.skaldi.environment` (e.g. `PULSE_SERVER`) or `serviceConfig.SupplementaryGroups`.
 
 ## OpenSubsonic
 
-Optional. Search a Subsonic/OpenSubsonic library (e.g. Navidrome) alongside YouTube.
-Enable via `config.json`:
+Optional. Searches a Subsonic/OpenSubsonic library such as Navidrome alongside YouTube.
 
 ```json
 {
@@ -110,12 +84,11 @@ Enable via `config.json`:
 }
 ```
 
-`token_file` points at a file containing the user's Subsonic password. If the
-file is missing/empty or any field is incomplete, OpenSubsonic is silently disabled.
+`token_file` holds the Subsonic password. If it is missing/empty or any field is incomplete, OpenSubsonic stays silently disabled.
 
 ## Security
 
-Designed for trusted networks. No authentication — do not expose directly to the internet.
+Built for trusted networks: no authentication, and the HTTP server listens on all interfaces. Do not expose it directly to the internet; keep `token_file` readable only by the service user.
 
 ## License
 
