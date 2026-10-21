@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
@@ -827,5 +828,195 @@ printf '%s\n' '{"id":"dQw4w9WgXcQ","title":"T","webpage_url":"https://www.youtub
 	}
 	if lines[len(lines)-1] != rawURL {
 		t.Fatalf("last arg = %q, want %q", lines[len(lines)-1], rawURL)
+	}
+}
+
+func writeHydrationShim(t *testing.T, r *Resolver, logPath, releasePath string) {
+	t.Helper()
+
+	writeExecutable(t, r.cfg.ShimPath(), `#!/bin/sh
+last=""
+for arg in "$@"; do
+  last="$arg"
+done
+echo S >> "`+logPath+`"
+while [ ! -e "`+releasePath+`" ]; do sleep 0.05; done
+echo E >> "`+logPath+`"
+printf '{"title":"Hydrated","artist":"Fixture Artist","duration":100,"thumbnail":"https://img.example/thumb.jpg","webpage_url":"%s","ie_key":"Youtube"}\n' "$last"
+`)
+}
+
+func countHydrationEvents(t *testing.T, logPath, marker string) int {
+	t.Helper()
+
+	data, err := os.ReadFile(logPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return 0
+		}
+		t.Fatalf("reading the hydration log failed: %v", err)
+	}
+
+	count := 0
+	for _, line := range strings.Split(string(data), "\n") {
+		if line == marker {
+			count++
+		}
+	}
+	return count
+}
+
+func waitForHydrationEvents(t *testing.T, logPath, marker string, want int) {
+	t.Helper()
+
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		if countHydrationEvents(t, logPath, marker) >= want {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("timed out waiting for %d %q entries in the hydration log", want, marker)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+func incompleteAlbumTracks(count int) []Track {
+	tracks := make([]Track, 0, count)
+	for i := range count {
+		tracks = append(tracks, Track{
+			ID:         fmt.Sprintf("track-%d", i),
+			WebpageURL: fmt.Sprintf("https://music.youtube.com/watch?v=track-%d", i),
+			Source:     SourceYTMusic,
+		})
+	}
+	return tracks
+}
+
+func TestHydrateVideoTracksBoundsConcurrentFetches(t *testing.T) {
+	r := newTestResolver(t)
+	logPath := filepath.Join(t.TempDir(), "hydration.log")
+	releasePath := filepath.Join(t.TempDir(), "release")
+	writeHydrationShim(t, r, logPath, releasePath)
+
+	tracks := incompleteAlbumTracks(10)
+	complete := map[int]bool{1: true, 7: true}
+	for index := range complete {
+		tracks[index] = Track{
+			ID:         tracks[index].ID,
+			Title:      "Complete",
+			Artist:     "Fixture Artist",
+			Duration:   120,
+			Thumbnail:  "https://img.example/complete.jpg",
+			WebpageURL: tracks[index].WebpageURL,
+			Source:     SourceYTMusic,
+		}
+	}
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		r.hydrateVideoTracks(context.Background(), tracks)
+	}()
+
+	waitForHydrationEvents(t, logPath, "S", hydrateConcurrency)
+
+	time.Sleep(100 * time.Millisecond)
+	if got := countHydrationEvents(t, logPath, "S"); got != hydrateConcurrency {
+		releaseHydrationFetches(t, releasePath)
+		<-done
+		t.Fatalf("concurrent fetches = %d, want the ceiling %d", got, hydrateConcurrency)
+	}
+	select {
+	case <-done:
+		t.Fatal("hydration returned while its fetches were still blocked")
+	default:
+	}
+
+	releaseHydrationFetches(t, releasePath)
+
+	select {
+	case <-done:
+	case <-time.After(10 * time.Second):
+		t.Fatal("hydration did not finish after its fetches were released")
+	}
+
+	starts := countHydrationEvents(t, logPath, "S")
+	ends := countHydrationEvents(t, logPath, "E")
+	if starts != 8 || ends != 8 {
+		t.Fatalf("hydration invocations = %d starts / %d ends, want 8/8 for the incomplete tracks", starts, ends)
+	}
+
+	for index := range tracks {
+		if complete[index] {
+			if tracks[index].Title != "Complete" {
+				t.Fatalf("complete track %d was hydrated: %#v", index, tracks[index])
+			}
+			continue
+		}
+		wantURL := fmt.Sprintf("https://music.youtube.com/watch?v=track-%d", index)
+		if tracks[index].Title != "Hydrated" || tracks[index].Source != SourceYTMusic {
+			t.Fatalf("track %d = %#v, want hydrated metadata at its original index", index, tracks[index])
+		}
+		if tracks[index].WebpageURL != wantURL {
+			t.Fatalf("track %d webpage_url = %q, want %q (order preserved)", index, tracks[index].WebpageURL, wantURL)
+		}
+	}
+}
+
+func releaseHydrationFetches(t *testing.T, releasePath string) {
+	t.Helper()
+
+	if err := os.WriteFile(releasePath, nil, 0o644); err != nil {
+		t.Fatalf("WriteFile failed: %v", err)
+	}
+}
+
+func TestHydrateVideoTracksStopsAdmittingAfterCancellation(t *testing.T) {
+	r := newTestResolver(t)
+	logPath := filepath.Join(t.TempDir(), "hydration.log")
+	releasePath := filepath.Join(t.TempDir(), "release")
+	writeHydrationShim(t, r, logPath, releasePath)
+
+	tracks := incompleteAlbumTracks(10)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		r.hydrateVideoTracks(ctx, tracks)
+	}()
+
+	waitForHydrationEvents(t, logPath, "S", hydrateConcurrency)
+	cancel()
+
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("hydration did not return after cancellation")
+	}
+
+	if got := countHydrationEvents(t, logPath, "S"); got != hydrateConcurrency {
+		t.Fatalf("fetches started = %d, want %d (queued work must not start after cancellation)", got, hydrateConcurrency)
+	}
+	if tracks[hydrateConcurrency].Title != "" {
+		t.Fatalf("queued track was hydrated after cancellation: %#v", tracks[hydrateConcurrency])
+	}
+}
+
+func TestHydrateVideoTracksSkipsFetchWithCancelledContext(t *testing.T) {
+	r := newTestResolver(t)
+	marker := filepath.Join(t.TempDir(), "invoked")
+	writeExecutable(t, r.cfg.ShimPath(), "#!/bin/sh\ntouch \""+marker+"\"\n")
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	r.hydrateVideoTracks(ctx, incompleteAlbumTracks(3))
+
+	if _, err := os.Stat(marker); !os.IsNotExist(err) {
+		t.Fatalf("hydration ran a fetch with a cancelled context (stat err = %v)", err)
 	}
 }

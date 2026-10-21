@@ -885,15 +885,37 @@ func (r *Resolver) fetchVideoAlbumTracks(ctx context.Context, rawURL string, lim
 	return tracks, nil
 }
 
+const hydrateConcurrency = 4
+
 func (r *Resolver) hydrateVideoTracks(ctx context.Context, tracks []Track) {
-	var wg sync.WaitGroup
+	pending := make([]int, 0, len(tracks))
 	for index := range tracks {
 		if hasVideoDisplayMetadata(tracks[index]) {
 			continue
 		}
+		pending = append(pending, index)
+	}
+	if len(pending) == 0 || ctx.Err() != nil {
+		return
+	}
+
+	sem := make(chan struct{}, hydrateConcurrency)
+	var wg sync.WaitGroup
+
+admit:
+	for _, index := range pending {
+		// Acquire before spawning to bound both goroutines and subprocesses.
+		select {
+		case <-ctx.Done():
+			break admit
+		case sem <- struct{}{}:
+		}
+
 		wg.Add(1)
 		go func(index int) {
 			defer wg.Done()
+			defer func() { <-sem }()
+
 			meta, err := r.fetchVideoMetadata(ctx, tracks[index].WebpageURL)
 			if err != nil {
 				return
