@@ -51,6 +51,16 @@ const (
 
 var ErrInvalidAlbumRef = errors.New("invalid album ref")
 
+var ErrUnsupportedURL = errors.New("unsupported link: use a YouTube or YouTube Music link, or a track from your library")
+
+var youtubeHosts = map[string]struct{}{
+	"youtube.com":          {},
+	"m.youtube.com":        {},
+	"music.youtube.com":    {},
+	"youtube-nocookie.com": {},
+	"youtu.be":             {},
+}
+
 type SearchIntent string
 
 const (
@@ -622,7 +632,7 @@ func (r *Resolver) loadYTMusicHits(ctx context.Context, query string) ([]SearchH
 
 func (r *Resolver) searchYouTube(ctx context.Context, query string) ([]Track, error) {
 	searchKey := fmt.Sprintf("ytsearch%d:%s", providerSearchLimit, query)
-	args := []string{"--dump-json", "--flat-playlist", "--no-download", "--no-warnings", searchKey}
+	args := []string{"--dump-json", "--flat-playlist", "--no-download", "--no-warnings", "--", searchKey}
 
 	cmd := exec.CommandContext(ctx, r.cfg.ShimPath(), args...)
 	out, err := cmd.Output()
@@ -650,7 +660,7 @@ func (r *Resolver) searchMusic(ctx context.Context, query string) ([]Track, erro
 	musicURL := "https://music.youtube.com/search?q=" + url.QueryEscape(query) + "#songs"
 	args := []string{"--dump-json", "--flat-playlist", "--no-download", "--no-warnings"}
 	args = append(args, "--playlist-end", fmt.Sprintf("%d", providerSearchLimit))
-	args = append(args, musicURL)
+	args = append(args, "--", musicURL)
 
 	cmd := exec.CommandContext(ctx, r.cfg.ShimPath(), args...)
 	out, err := cmd.Output()
@@ -678,7 +688,7 @@ func (r *Resolver) searchMusicAlbumHits(ctx context.Context, query string) ([]Se
 	musicURL := "https://music.youtube.com/search?q=" + url.QueryEscape(query) + "#albums"
 	args := []string{"--dump-json", "--flat-playlist", "--no-download", "--no-warnings"}
 	args = append(args, "--playlist-end", fmt.Sprintf("%d", ytMusicAlbumSearchLimit))
-	args = append(args, musicURL)
+	args = append(args, "--", musicURL)
 
 	cmd := exec.CommandContext(ctx, r.cfg.ShimPath(), args...)
 	out, err := cmd.Output()
@@ -717,8 +727,11 @@ func (r *Resolver) Resolve(ctx context.Context, rawURL string) ([]Track, error) 
 	if subsonicRef, ok := ParseSubsonicURI(rawURL); ok {
 		return r.resolveSubsonicTrack(ctx, subsonicRef)
 	}
+	if err := ValidateQueueInput(rawURL); err != nil {
+		return nil, err
+	}
 
-	args := []string{"--dump-json", "--flat-playlist", "--no-download", "--no-warnings", rawURL}
+	args := []string{"--dump-json", "--flat-playlist", "--no-download", "--no-warnings", "--", rawURL}
 	cmd := exec.CommandContext(ctx, r.cfg.ShimPath(), args...)
 	out, err := cmd.Output()
 	if err != nil {
@@ -822,7 +835,7 @@ func (r *Resolver) fetchVideoAlbumSummary(ctx context.Context, rawURL string, se
 }
 
 func (r *Resolver) fetchVideoAlbumMetadata(ctx context.Context, rawURL string) (ytDlpResponse, error) {
-	args := []string{"--dump-json", "--playlist-end", "1", "--no-download", "--no-warnings", rawURL}
+	args := []string{"--dump-json", "--playlist-end", "1", "--no-download", "--no-warnings", "--", rawURL}
 	cmd := exec.CommandContext(ctx, r.cfg.ShimPath(), args...)
 	out, err := cmd.Output()
 	if err != nil {
@@ -848,7 +861,7 @@ func (r *Resolver) fetchVideoAlbumTracks(ctx context.Context, rawURL string, lim
 	if limit > 0 {
 		args = append(args, "--playlist-end", fmt.Sprintf("%d", limit))
 	}
-	args = append(args, rawURL)
+	args = append(args, "--", rawURL)
 
 	cmd := exec.CommandContext(ctx, r.cfg.ShimPath(), args...)
 	out, err := cmd.Output()
@@ -906,7 +919,7 @@ func (r *Resolver) completeVisibleVideoTracks(ctx context.Context, tracks []Trac
 }
 
 func (r *Resolver) fetchVideoMetadata(ctx context.Context, rawURL string) (Track, error) {
-	args := []string{"--dump-json", "--no-playlist", "--no-download", "--no-warnings", rawURL}
+	args := []string{"--dump-json", "--no-playlist", "--no-download", "--no-warnings", "--", rawURL}
 	cmd := exec.CommandContext(ctx, r.cfg.ShimPath(), args...)
 	out, err := cmd.Output()
 	if err != nil {
@@ -1445,6 +1458,139 @@ func coalesce(values ...string) string {
 		}
 	}
 	return ""
+}
+
+func isYouTubeURL(raw string) bool {
+	u, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") {
+		return false
+	}
+	_, ok := youtubeHosts[strings.TrimPrefix(strings.ToLower(u.Hostname()), "www.")]
+	return ok
+}
+
+func ValidateQueueInput(raw string) error {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return errors.New("URL is required")
+	}
+	if strings.HasPrefix(trimmed, "-") {
+		return errors.New("URL must not start with '-'")
+	}
+	if _, ok := ParseSubsonicURI(trimmed); ok {
+		return nil
+	}
+	if _, ok := ParseSubsonicAlbumURI(trimmed); ok {
+		return errors.New("album references cannot be queued directly")
+	}
+	if !isYouTubeURL(trimmed) {
+		return ErrUnsupportedURL
+	}
+	return nil
+}
+
+// Validate both references against the actual playback identity.
+func QueueableTrackFromHit(hit SearchHit) (Track, error) {
+	if hit.Kind == SearchHitKindAlbum {
+		return Track{}, errors.New("album hits are not directly queueable")
+	}
+	if hit.Kind != "" && hit.Kind != SearchHitKindTrack {
+		return Track{}, fmt.Errorf("unsupported search hit kind: %s", hit.Kind)
+	}
+	if hit.QueueURL == "" {
+		return Track{}, errors.New("queue_url is required")
+	}
+	if hit.WebpageURL == "" {
+		return Track{}, errors.New("webpage_url is required")
+	}
+
+	track := Track{
+		Title:      hit.Title,
+		Artist:     hit.Artist,
+		Duration:   hit.Duration,
+		Uploader:   hit.Artist,
+		Thumbnail:  hit.Thumbnail,
+		Source:     hit.Source,
+		WebpageURL: hit.WebpageURL,
+	}
+
+	switch hit.Source {
+	case SourceYouTube, SourceYTMusic:
+		queueID, queueOK := youtubeVideoID(hit.QueueURL)
+		pageID, pageOK := youtubeVideoID(hit.WebpageURL)
+		if !queueOK || !pageOK {
+			return Track{}, errors.New("search hit is not a YouTube video")
+		}
+		if queueID != pageID {
+			return Track{}, errors.New("conflicting video identity in search hit")
+		}
+		if hit.ID != "" && hit.ID != queueID {
+			return Track{}, errors.New("search hit id does not match its video reference")
+		}
+		hit.ID = queueID
+		track.WebpageURL = "https://www.youtube.com/watch?v=" + queueID
+	case SourceSubsonic:
+		queueRef, queueOK := ParseSubsonicURI(hit.QueueURL)
+		pageRef, pageOK := ParseSubsonicURI(hit.WebpageURL)
+		if !queueOK || !pageOK {
+			return Track{}, errors.New("invalid opensubsonic reference in search hit")
+		}
+		if queueRef != pageRef {
+			return Track{}, errors.New("conflicting opensubsonic reference in search hit")
+		}
+		if hit.ID != "" && hit.ID != queueRef.TrackID {
+			return Track{}, errors.New("search hit id does not match its opensubsonic reference")
+		}
+		hit.ID = queueRef.TrackID
+		track.URL = hit.QueueURL
+	default:
+		return Track{}, fmt.Errorf("unsupported search hit source: %s", hit.Source)
+	}
+
+	track.ID = hit.ID
+	return track, nil
+}
+
+func youtubeVideoID(raw string) (string, bool) {
+	u, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") {
+		return "", false
+	}
+	host := strings.TrimPrefix(strings.ToLower(u.Hostname()), "www.")
+	if _, ok := youtubeHosts[host]; !ok {
+		return "", false
+	}
+
+	path := strings.TrimSuffix(u.Path, "/")
+	if host == "youtu.be" {
+		return validVideoID(strings.Trim(path, "/"))
+	}
+
+	switch {
+	case path == "/watch" || strings.HasPrefix(path, "/watch/"):
+		return validVideoID(u.Query().Get("v"))
+	case strings.HasPrefix(path, "/shorts/"), strings.HasPrefix(path, "/embed/"),
+		strings.HasPrefix(path, "/live/"), strings.HasPrefix(path, "/v/"):
+		parts := strings.Split(strings.Trim(path, "/"), "/")
+		if len(parts) >= 2 {
+			return validVideoID(parts[1])
+		}
+	}
+	return "", false
+}
+
+func validVideoID(id string) (string, bool) {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return "", false
+	}
+	for _, r := range id {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '-' || r == '_' {
+			continue
+		}
+		return "", false
+	}
+	return id, true
 }
 
 func firstArtist(value string) string {

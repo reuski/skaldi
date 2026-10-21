@@ -369,34 +369,6 @@ func TestHandleQueue_InvalidMethod(t *testing.T) {
 	}
 }
 
-func TestQueueTrackFromHit(t *testing.T) {
-	hit := resolver.SearchHit{
-		Kind:       resolver.SearchHitKindTrack,
-		ID:         "vid-1",
-		Source:     resolver.SourceYouTube,
-		Title:      "Song",
-		Artist:     "Artist",
-		Duration:   123,
-		Thumbnail:  "https://img.example/vid-1.jpg",
-		WebpageURL: "https://www.youtube.com/watch?v=vid-1",
-		QueueURL:   "https://www.youtube.com/watch?v=vid-1",
-	}
-
-	track, err := queueTrackFromHit(hit)
-	if err != nil {
-		t.Fatalf("queueTrackFromHit failed: %v", err)
-	}
-	if track.Source != resolver.SourceYouTube {
-		t.Fatalf("source = %q, want %q", track.Source, resolver.SourceYouTube)
-	}
-	if track.WebpageURL != hit.WebpageURL {
-		t.Fatalf("webpage_url = %q, want %q", track.WebpageURL, hit.WebpageURL)
-	}
-	if track.Uploader != hit.Artist {
-		t.Fatalf("uploader = %q, want %q", track.Uploader, hit.Artist)
-	}
-}
-
 func TestResolveQueueHitsPreservesAlbumTrackOrder(t *testing.T) {
 	s, _ := setupTestServer(t)
 	hits := []resolver.SearchHit{
@@ -433,13 +405,6 @@ func TestResolveQueueHitsPreservesAlbumTrackOrder(t *testing.T) {
 	}
 	if tracks[0].ID != "track-1" || tracks[1].ID != "track-2" {
 		t.Fatalf("track order = %#v", tracks)
-	}
-}
-
-func TestQueueTrackFromHit_InvalidSource(t *testing.T) {
-	_, err := queueTrackFromHit(resolver.SearchHit{Source: "unsupported", QueueURL: "https://example.com"})
-	if err == nil {
-		t.Fatal("expected unsupported source error")
 	}
 }
 
@@ -848,5 +813,125 @@ func writeExecutable(t *testing.T, path string, body string) {
 	}
 	if err := os.WriteFile(path, []byte(body), 0o755); err != nil {
 		t.Fatalf("WriteFile failed: %v", err)
+	}
+}
+
+func TestHandleQueue_RejectsUnsupportedURL(t *testing.T) {
+	s, _ := setupTestServer(t)
+
+	for _, tc := range []struct {
+		name        string
+		url         string
+		wantStatus  int
+		wantMessage string
+	}{
+		{
+			name:        "unsupported_source",
+			url:         "https://open.spotify.com/track/4uLU6hMCjMI75M1A2tKUQC",
+			wantStatus:  http.StatusBadRequest,
+			wantMessage: "unsupported link",
+		},
+		{
+			name:       "option_like",
+			url:        "--exec=touch /tmp/pwn",
+			wantStatus: http.StatusBadRequest,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			body, _ := json.Marshal(map[string]string{"url": tc.url})
+			req := httptest.NewRequest(http.MethodPost, "/queue", strings.NewReader(string(body)))
+			rr := httptest.NewRecorder()
+
+			s.handleQueue(rr, req)
+
+			if rr.Code != tc.wantStatus {
+				t.Fatalf("Status = %d, want %d (%s)", rr.Code, tc.wantStatus, rr.Body.String())
+			}
+			if tc.wantMessage != "" && !strings.Contains(rr.Body.String(), tc.wantMessage) {
+				t.Fatalf("body = %q, want it to contain %q", rr.Body.String(), tc.wantMessage)
+			}
+		})
+	}
+}
+
+func TestHandleQueue_ReportsGenericResolveFailure(t *testing.T) {
+	s := setupSearchServer(t, false)
+
+	body := `{"url":"https://www.youtube.com/watch?v=dQw4w9WgXcQ"}`
+	req := httptest.NewRequest(http.MethodPost, "/queue", strings.NewReader(body))
+	rr := httptest.NewRecorder()
+
+	s.handleQueue(rr, req)
+
+	if rr.Code != http.StatusBadGateway {
+		t.Fatalf("Status = %d, want %d (%s)", rr.Code, http.StatusBadGateway, rr.Body.String())
+	}
+	if strings.Contains(rr.Body.String(), "yt-dlp") || strings.Contains(rr.Body.String(), "no tracks") {
+		t.Fatalf("body leaked internal error: %q", rr.Body.String())
+	}
+}
+
+func TestResolveQueueHitsValidatesSubsonicHitsBeforeResolving(t *testing.T) {
+	s := setupSearchServer(t, true)
+
+	valid := resolver.SearchHit{
+		Kind:       resolver.SearchHitKindTrack,
+		ID:         "lib-1",
+		Source:     resolver.SourceSubsonic,
+		Title:      "Library Song",
+		WebpageURL: "skaldi+subsonic://personal/lib-1",
+		QueueURL:   "skaldi+subsonic://personal/lib-1",
+	}
+
+	if tracks, rejected := s.resolveQueueHits(context.Background(), []resolver.SearchHit{valid}); rejected != 0 || len(tracks) != 1 {
+		t.Fatalf("valid subsonic hit: tracks = %d, rejected = %d, want 1/0", len(tracks), rejected)
+	}
+
+	tests := []struct {
+		name   string
+		mutate func(resolver.SearchHit) resolver.SearchHit
+	}{
+		{name: "album_kind", mutate: func(h resolver.SearchHit) resolver.SearchHit {
+			h.Kind = resolver.SearchHitKindAlbum
+			return h
+		}},
+		{name: "conflicting_reference", mutate: func(h resolver.SearchHit) resolver.SearchHit {
+			h.WebpageURL = "skaldi+subsonic://personal/lib-2"
+			return h
+		}},
+		{name: "id_mismatch", mutate: func(h resolver.SearchHit) resolver.SearchHit {
+			h.ID = "lib-2"
+			return h
+		}},
+		{name: "foreign_webpage", mutate: func(h resolver.SearchHit) resolver.SearchHit {
+			h.WebpageURL = "https://music.example/rest/stream.view?id=lib-1"
+			return h
+		}},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			tracks, rejected := s.resolveQueueHits(context.Background(), []resolver.SearchHit{tc.mutate(valid)})
+			if rejected != 1 || len(tracks) != 0 {
+				t.Fatalf("tracks = %d, rejected = %d, want 0/1", len(tracks), rejected)
+			}
+		})
+	}
+}
+
+func TestQueueTracks_CountsEnqueueFailures(t *testing.T) {
+	s, _ := setupTestServer(t)
+
+	queued, failures := s.queueTracks([]resolver.Track{{
+		Title:      "Track",
+		WebpageURL: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+		Source:     resolver.SourceYouTube,
+	}})
+
+	if len(queued) != 0 {
+		t.Fatalf("queued = %d, want 0 without an IPC connection", len(queued))
+	}
+	if failures != 1 {
+		t.Fatalf("failures = %d, want 1", failures)
 	}
 }

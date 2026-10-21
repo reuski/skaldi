@@ -640,3 +640,192 @@ type roundTripFunc func(*http.Request) (*http.Response, error)
 func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
 	return f(req)
 }
+
+func TestValidateQueueInput(t *testing.T) {
+	tests := []struct {
+		name            string
+		input           string
+		wantErr         bool
+		wantUnsupported bool
+	}{
+		{name: "youtube_watch", input: "https://www.youtube.com/watch?v=dQw4w9WgXcQ"},
+		{name: "youtube_playlist", input: "https://www.youtube.com/playlist?list=PL123"},
+		{name: "youtu_be", input: "https://youtu.be/dQw4w9WgXcQ"},
+		{name: "ytmusic_album", input: "https://music.youtube.com/browse/MPREb_123"},
+		{name: "subsonic_ref", input: "skaldi+subsonic://personal/track-1"},
+		{name: "subsonic_album_ref", input: "skaldi+subsonic-album://personal/album-1", wantErr: true},
+		{name: "spotify", input: "https://open.spotify.com/track/4uLU6hMCjMI75M1A2tKUQC", wantErr: true, wantUnsupported: true},
+		{name: "soundcloud", input: "https://soundcloud.com/artist/track", wantErr: true, wantUnsupported: true},
+		{name: "lookalike_host", input: "https://www.youtube.com.evil.example/watch?v=1", wantErr: true, wantUnsupported: true},
+		{name: "file_scheme", input: "file:///etc/passwd", wantErr: true, wantUnsupported: true},
+		{name: "option_like", input: "--exec=touch /tmp/pwn", wantErr: true},
+		{name: "empty", input: "   ", wantErr: true},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			err := ValidateQueueInput(tc.input)
+			if !tc.wantErr {
+				if err != nil {
+					t.Fatalf("ValidateQueueInput(%q) = %v, want nil", tc.input, err)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatalf("ValidateQueueInput(%q) = nil, want error", tc.input)
+			}
+			if got := errors.Is(err, ErrUnsupportedURL); got != tc.wantUnsupported {
+				t.Fatalf("ValidateQueueInput(%q) = %v, errors.Is(ErrUnsupportedURL) = %v", tc.input, err, got)
+			}
+		})
+	}
+}
+
+func TestQueueableTrackFromHit(t *testing.T) {
+	valid := SearchHit{
+		Kind:       SearchHitKindTrack,
+		ID:         "dQw4w9WgXcQ",
+		Source:     SourceYouTube,
+		Title:      "Song",
+		Artist:     "Artist",
+		Duration:   210,
+		Thumbnail:  "https://img.example/dQw4w9WgXcQ.jpg",
+		WebpageURL: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+		QueueURL:   "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+	}
+
+	tests := []struct {
+		name        string
+		mutate      func(SearchHit) SearchHit
+		wantErr     bool
+		wantWebpage string
+	}{
+		{name: "youtube", wantWebpage: valid.QueueURL},
+		{name: "youtube_reference_forms_normalized", mutate: func(h SearchHit) SearchHit {
+			h.QueueURL = "https://youtu.be/dQw4w9WgXcQ?si=tracking"
+			h.WebpageURL = "https://music.youtube.com/watch?v=dQw4w9WgXcQ"
+			return h
+		}, wantWebpage: valid.QueueURL},
+		{name: "ytmusic", mutate: func(h SearchHit) SearchHit {
+			h.Source = SourceYTMusic
+			return h
+		}, wantWebpage: valid.QueueURL},
+		{name: "subsonic", mutate: func(h SearchHit) SearchHit {
+			h.Source = SourceSubsonic
+			h.ID = "track-1"
+			h.QueueURL = "skaldi+subsonic://personal/track-1"
+			h.WebpageURL = h.QueueURL
+			return h
+		}, wantWebpage: "skaldi+subsonic://personal/track-1"},
+		{name: "foreign_host", mutate: func(h SearchHit) SearchHit {
+			h.QueueURL = "https://evil.example/watch?v=dQw4w9WgXcQ"
+			h.WebpageURL = h.QueueURL
+			return h
+		}, wantErr: true},
+		{name: "browse_page", mutate: func(h SearchHit) SearchHit {
+			h.QueueURL = "https://www.youtube.com/playlist?list=PL123"
+			h.WebpageURL = h.QueueURL
+			return h
+		}, wantErr: true},
+		{name: "identity_mismatch", mutate: func(h SearchHit) SearchHit {
+			h.WebpageURL = "https://www.youtube.com/watch?v=aaaaaaaaaaa"
+			return h
+		}, wantErr: true},
+		{name: "id_mismatch", mutate: func(h SearchHit) SearchHit {
+			h.ID = "aaaaaaaaaaa"
+			return h
+		}, wantErr: true},
+		{name: "album_kind", mutate: func(h SearchHit) SearchHit {
+			h.Kind = SearchHitKindAlbum
+			return h
+		}, wantErr: true},
+		{name: "unsupported_source", mutate: func(h SearchHit) SearchHit {
+			h.Source = "soundcloud"
+			return h
+		}, wantErr: true},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			hit := valid
+			if tc.mutate != nil {
+				hit = tc.mutate(hit)
+			}
+			track, err := QueueableTrackFromHit(hit)
+			if tc.wantErr {
+				if err == nil {
+					t.Fatalf("QueueableTrackFromHit(%#v) = nil error, want error", hit)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("QueueableTrackFromHit(%#v) = %v", hit, err)
+			}
+			if track.Source != hit.Source || track.Uploader != hit.Artist || track.Duration != hit.Duration {
+				t.Fatalf("track = %#v, want source %q uploader %q duration %v", track, hit.Source, hit.Artist, hit.Duration)
+			}
+			if track.WebpageURL != tc.wantWebpage {
+				t.Fatalf("webpage_url = %q, want %q", track.WebpageURL, tc.wantWebpage)
+			}
+		})
+	}
+}
+
+func TestResolveRejectsUnsupportedURLWithoutExecutingShim(t *testing.T) {
+	r := newTestResolver(t)
+	marker := filepath.Join(t.TempDir(), "invoked")
+	writeExecutable(t, r.cfg.ShimPath(), "#!/bin/sh\ntouch "+marker+"\n")
+
+	inputs := []string{
+		"",
+		"   ",
+		"--exec=touch /tmp/pwn",
+		"-o/tmp/out",
+		"file:///etc/passwd",
+		"notaurl",
+		"https://open.spotify.com/track/abc",
+		"https://soundcloud.com/artist/track",
+	}
+	for _, input := range inputs {
+		if _, err := r.Resolve(context.Background(), input); err == nil {
+			t.Fatalf("Resolve(%q) = nil error, want error", input)
+		}
+	}
+
+	if _, err := os.Stat(marker); !os.IsNotExist(err) {
+		t.Fatalf("shim was executed for a rejected input (stat err = %v)", err)
+	}
+}
+
+func TestResolvePassesSupportedYouTubeURLAfterArgumentSeparator(t *testing.T) {
+	r := newTestResolver(t)
+	argsFile := filepath.Join(t.TempDir(), "args.txt")
+	writeExecutable(t, r.cfg.ShimPath(), `#!/bin/sh
+printf '%s\n' "$@" > `+argsFile+`
+printf '%s\n' '{"id":"dQw4w9WgXcQ","title":"T","webpage_url":"https://www.youtube.com/watch?v=dQw4w9WgXcQ","ie_key":"Youtube"}'
+`)
+
+	rawURL := "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+	tracks, err := r.Resolve(context.Background(), rawURL)
+	if err != nil {
+		t.Fatalf("Resolve failed: %v", err)
+	}
+	if len(tracks) != 1 || tracks[0].Source != SourceYouTube {
+		t.Fatalf("tracks = %#v, want one YouTube track", tracks)
+	}
+
+	data, err := os.ReadFile(argsFile)
+	if err != nil {
+		t.Fatalf("ReadFile failed: %v", err)
+	}
+	lines := strings.Split(strings.TrimRight(string(data), "\n"), "\n")
+	if len(lines) < 2 {
+		t.Fatalf("argv = %#v, want at least two args", lines)
+	}
+	if lines[len(lines)-2] != "--" {
+		t.Fatalf("penultimate arg = %q, want -- (argv = %#v)", lines[len(lines)-2], lines)
+	}
+	if lines[len(lines)-1] != rawURL {
+		t.Fatalf("last arg = %q, want %q", lines[len(lines)-1], rawURL)
+	}
+}

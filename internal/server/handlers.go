@@ -94,10 +94,17 @@ func (s *Server) handleQueue(w http.ResponseWriter, r *http.Request) {
 	)
 
 	if req.URL != "" {
+		if err := resolver.ValidateQueueInput(req.URL); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
 		tracks, err = s.resolver.Resolve(r.Context(), req.URL)
 		if err != nil {
-			s.logger.Error("Failed to resolve URL", "url", req.URL, "error", err)
-			http.Error(w, fmt.Sprintf("Failed to resolve URL: %v", err), http.StatusInternalServerError)
+			if r.Context().Err() != nil {
+				return
+			}
+			s.logger.Error("Failed to resolve URL", "error", err)
+			http.Error(w, "Could not add that URL. Check the link and try again.", http.StatusBadGateway)
 			return
 		}
 	} else {
@@ -108,9 +115,10 @@ func (s *Server) handleQueue(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	queuedTracks := s.queueTracks(tracks)
+	queuedTracks, enqueueFailures := s.queueTracks(tracks)
+	rejected += enqueueFailures
 	if len(queuedTracks) == 0 {
-		http.Error(w, "Failed to enqueue tracks", http.StatusInternalServerError)
+		http.Error(w, "Could not add those tracks to the queue", http.StatusBadGateway)
 		return
 	}
 
@@ -130,7 +138,7 @@ func (s *Server) resolveQueueHits(ctx context.Context, hits []resolver.SearchHit
 		resolvedTracks, err := s.resolveQueueHit(ctx, hit)
 		if err != nil {
 			rejected++
-			s.logger.Error("Failed to queue search hit", "source", hit.Source, "queue_url", hit.QueueURL, "error", err)
+			s.logger.Error("Failed to queue search hit", "source", hit.Source, "error", err)
 			continue
 		}
 		tracks = append(tracks, resolvedTracks...)
@@ -139,78 +147,31 @@ func (s *Server) resolveQueueHits(ctx context.Context, hits []resolver.SearchHit
 }
 
 func (s *Server) resolveQueueHit(ctx context.Context, hit resolver.SearchHit) ([]resolver.Track, error) {
-	if hit.Kind == resolver.SearchHitKindAlbum {
-		return nil, fmt.Errorf("album hits are not directly queueable")
-	}
-	if hit.QueueURL == "" {
-		return nil, fmt.Errorf("queue_url is required")
+	track, err := resolver.QueueableTrackFromHit(hit)
+	if err != nil {
+		return nil, err
 	}
 	if hit.Source == resolver.SourceSubsonic {
 		return s.resolver.Resolve(ctx, hit.QueueURL)
 	}
-
-	track, err := queueTrackFromHit(hit)
-	if err != nil {
-		return nil, err
-	}
 	return []resolver.Track{track}, nil
 }
 
-func queueTrackFromHit(hit resolver.SearchHit) (resolver.Track, error) {
-	if hit.Kind == resolver.SearchHitKindAlbum {
-		return resolver.Track{}, fmt.Errorf("album hits are not directly queueable")
-	}
-	if hit.QueueURL == "" {
-		return resolver.Track{}, fmt.Errorf("queue_url is required")
-	}
-
-	webpageURL := hit.WebpageURL
-	if webpageURL == "" {
-		webpageURL = hit.QueueURL
-	}
-
-	switch hit.Source {
-	case resolver.SourceYouTube, resolver.SourceYTMusic:
-		return resolver.Track{
-			ID:         hit.ID,
-			Title:      hit.Title,
-			Artist:     hit.Artist,
-			Duration:   hit.Duration,
-			Uploader:   hit.Artist,
-			Thumbnail:  hit.Thumbnail,
-			URL:        hit.QueueURL,
-			WebpageURL: webpageURL,
-			Source:     hit.Source,
-		}, nil
-	case resolver.SourceSubsonic:
-		return resolver.Track{
-			ID:         hit.ID,
-			Title:      hit.Title,
-			Artist:     hit.Artist,
-			Duration:   hit.Duration,
-			Uploader:   hit.Artist,
-			Thumbnail:  hit.Thumbnail,
-			URL:        hit.QueueURL,
-			WebpageURL: webpageURL,
-			Source:     hit.Source,
-		}, nil
-	default:
-		return resolver.Track{}, fmt.Errorf("unsupported search hit source: %s", hit.Source)
-	}
-}
-
-func (s *Server) queueTracks(tracks []resolver.Track) []resolver.Track {
+func (s *Server) queueTracks(tracks []resolver.Track) ([]resolver.Track, int) {
 	queuedTracks := make([]resolver.Track, 0, len(tracks))
+	failures := 0
 	for _, track := range tracks {
 		urlToQueue := track.PlayableURL()
 		if urlToQueue == "" {
+			failures++
 			continue
 		}
 
 		s.player.State.StoreMetadata(urlToQueue, track)
 
 		if _, err := s.player.Exec("loadfile", urlToQueue, "append-play"); err != nil {
-			s.logger.Error("Failed to enqueue track", "url", urlToQueue, "error", err)
+			s.logger.Error("Failed to enqueue track", "error", err)
+			failures++
 			continue
 		}
 
@@ -220,7 +181,7 @@ func (s *Server) queueTracks(tracks []resolver.Track) []resolver.Track {
 		}
 		queuedTracks = append(queuedTracks, safeTrack)
 	}
-	return queuedTracks
+	return queuedTracks, failures
 }
 
 func (s *Server) handleAlbum(w http.ResponseWriter, r *http.Request) {
