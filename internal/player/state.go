@@ -29,18 +29,26 @@ type QueueItem struct {
 	Metadata *resolver.Track `json:"metadata,omitempty"`
 }
 
+// Occurrence distinguishes repeated failures; raw errors may expose stream credentials.
+type PlaybackFailure struct {
+	Occurrence uint64 `json:"occurrence"`
+	EntryID    int    `json:"entry_id,omitempty"`
+	Title      string `json:"title,omitempty"`
+}
+
 type Snapshot struct {
-	Version     uint64         `json:"v"`
-	Status      PlaybackStatus `json:"status"`
-	CurrentTime float64        `json:"current_time"`
-	Duration    float64        `json:"duration"`
-	Volume      float64        `json:"volume"`
-	Muted       bool           `json:"muted"`
-	Queue       []QueueItem    `json:"queue"`
-	History     []QueueItem    `json:"history"`
-	Upcoming    []QueueItem    `json:"upcoming"`
-	CurrentIdx  int            `json:"current_index"`
-	NowPlaying  *QueueItem     `json:"now_playing,omitempty"`
+	Version     uint64           `json:"v"`
+	Status      PlaybackStatus   `json:"status"`
+	CurrentTime float64          `json:"current_time"`
+	Duration    float64          `json:"duration"`
+	Volume      float64          `json:"volume"`
+	Muted       bool             `json:"muted"`
+	Queue       []QueueItem      `json:"queue"`
+	History     []QueueItem      `json:"history"`
+	Upcoming    []QueueItem      `json:"upcoming"`
+	CurrentIdx  int              `json:"current_index"`
+	NowPlaying  *QueueItem       `json:"now_playing,omitempty"`
+	LastFailure *PlaybackFailure `json:"last_playback_failure,omitempty"`
 }
 
 type Delta struct {
@@ -69,6 +77,8 @@ type State struct {
 	recentPlayed []QueueItem
 	metadata     map[string]resolver.Track
 	metaAddedAt  map[string]time.Time
+	lastFailure  *PlaybackFailure
+	failureSeq   uint64
 }
 
 type MpvPlaylistEntry struct {
@@ -157,6 +167,7 @@ func (s *State) Snapshot() Snapshot {
 		Upcoming:    upcoming,
 		CurrentIdx:  currentIdx,
 		NowPlaying:  nowPlaying,
+		LastFailure: s.lastFailure,
 	}
 }
 
@@ -271,6 +282,38 @@ func (s *State) ResetPlayed() {
 	s.mu.Unlock()
 }
 
+// Use the failed entry's metadata, never the current index or authenticated filename.
+func (s *State) RecordPlaybackFailure(entryID int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.failureSeq++
+	failure := &PlaybackFailure{
+		Occurrence: s.failureSeq,
+		EntryID:    entryID,
+		Title:      s.failureTitleLocked(entryID),
+	}
+	s.lastFailure = failure
+	s.version++
+}
+
+func (s *State) failureTitleLocked(entryID int) string {
+	if entryID == 0 {
+		return ""
+	}
+	for _, entry := range s.playlist {
+		if entry.ID != entryID {
+			continue
+		}
+		track, ok := s.metadata[entry.Filename]
+		if !ok {
+			return ""
+		}
+		return track.Title
+	}
+	return ""
+}
+
 func (s *State) PruneMetadata() {
 	s.PruneMetadataBefore(time.Time{})
 }
@@ -309,13 +352,21 @@ func (s *State) playlistItemLocked(index int) *QueueItem {
 	if track, ok := s.metadata[entry.Filename]; ok {
 		item.Title = track.Title
 		item.Duration = track.Duration
-		item.Metadata = &track
+		item.Metadata = sanitizedMetadataPtr(track)
 		if track.WebpageURL != "" {
 			item.Filename = track.WebpageURL
 		}
 	}
 
 	return &item
+}
+
+// Publish opaque library references, not authenticated stream URLs.
+func sanitizedMetadataPtr(track resolver.Track) *resolver.Track {
+	if track.Source == resolver.SourceSubsonic {
+		track.URL = track.WebpageURL
+	}
+	return &track
 }
 
 func appendRecent(items []QueueItem, item QueueItem) []QueueItem {
@@ -395,6 +446,17 @@ func sameQueueItemPtr(a, b *QueueItem) bool {
 	}
 }
 
+func samePlaybackFailure(a, b *PlaybackFailure) bool {
+	switch {
+	case a == nil && b == nil:
+		return true
+	case a == nil || b == nil:
+		return false
+	default:
+		return *a == *b
+	}
+}
+
 func queueChanged(a, b []QueueItem) bool {
 	return !slices.EqualFunc(a, b, sameQueueItem)
 }
@@ -409,7 +471,8 @@ func SnapshotsEqual(a, b Snapshot) bool {
 		!queueChanged(a.Queue, b.Queue) &&
 		!queueChanged(a.History, b.History) &&
 		!queueChanged(a.Upcoming, b.Upcoming) &&
-		sameQueueItemPtr(a.NowPlaying, b.NowPlaying)
+		sameQueueItemPtr(a.NowPlaying, b.NowPlaying) &&
+		samePlaybackFailure(a.LastFailure, b.LastFailure)
 }
 
 func ComputeDelta(prev, curr Snapshot) *Delta {
@@ -423,7 +486,8 @@ func ComputeDelta(prev, curr Snapshot) *Delta {
 		queueChanged(prev.Queue, curr.Queue) ||
 		queueChanged(prev.History, curr.History) ||
 		queueChanged(prev.Upcoming, curr.Upcoming) ||
-		!sameQueueItemPtr(prev.NowPlaying, curr.NowPlaying) {
+		!sameQueueItemPtr(prev.NowPlaying, curr.NowPlaying) ||
+		!samePlaybackFailure(prev.LastFailure, curr.LastFailure) {
 		return nil
 	}
 

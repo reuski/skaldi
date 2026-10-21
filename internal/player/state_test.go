@@ -3,6 +3,8 @@
 package player
 
 import (
+	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/reuski/skaldi/internal/resolver"
@@ -432,7 +434,6 @@ func TestComputeDelta_MetadataChange(t *testing.T) {
 
 	prev := s.Snapshot()
 
-	// Update metadata (Title change)
 	s.StoreMetadata("track1.mp3", resolver.Track{Title: "Title 2", Duration: 100})
 	curr := s.Snapshot()
 
@@ -566,5 +567,78 @@ func TestState_Snapshot_ReindexesRecentHistory(t *testing.T) {
 	}
 	if snap.History[0].Index != 2 {
 		t.Fatalf("History[0].Index = %d, want 2", snap.History[0].Index)
+	}
+}
+
+func TestSnapshotRedactsSubsonicStreamURL(t *testing.T) {
+	s := NewState()
+	const secret = "salt-secret"
+	stream := "https://music.example/rest/stream.view?id=track-1&u=alice&t=" + secret
+	opaque := "skaldi+subsonic://personal/track-1"
+	track := resolver.Track{
+		ID:         "track-1",
+		Title:      "Song",
+		Artist:     "Artist",
+		URL:        stream,
+		WebpageURL: opaque,
+		Source:     resolver.SourceSubsonic,
+	}
+	s.StoreMetadata(stream, track)
+	s.SetPlaylist([]MpvPlaylistEntry{{Filename: stream, ID: 1}})
+	s.SetPlaylistPos(0)
+
+	snap := s.Snapshot()
+	data, err := json.Marshal(snap)
+	if err != nil {
+		t.Fatalf("Marshal failed: %v", err)
+	}
+	if strings.Contains(string(data), secret) {
+		t.Fatalf("serialized snapshot leaked the stream token: %s", data)
+	}
+	if snap.NowPlaying == nil || snap.NowPlaying.Metadata == nil {
+		t.Fatal("NowPlaying metadata missing")
+	}
+	if snap.NowPlaying.Metadata.URL != opaque {
+		t.Fatalf("metadata URL = %q, want opaque ref %q", snap.NowPlaying.Metadata.URL, opaque)
+	}
+	if len(snap.Queue) != 1 || snap.Queue[0].Metadata == nil || snap.Queue[0].Metadata.URL != opaque {
+		t.Fatalf("queue metadata not redacted: %#v", snap.Queue)
+	}
+
+	s.RecordPlaybackFailure(9)
+	failure := s.Snapshot().LastFailure
+	if failure == nil || failure.EntryID != 9 || failure.Title != "" {
+		t.Fatalf("LastFailure = %#v, want entry 9 with no title", failure)
+	}
+	data, err = json.Marshal(s.Snapshot())
+	if err != nil {
+		t.Fatalf("Marshal failed: %v", err)
+	}
+	if strings.Contains(string(data), secret) || strings.Contains(string(data), "stream.view") {
+		t.Fatalf("serialized failure leaked the stream URL: %s", data)
+	}
+}
+
+func TestSnapshotEqualityTracksPlaybackFailure(t *testing.T) {
+	s := NewState()
+	before := s.Snapshot()
+
+	s.RecordPlaybackFailure(1)
+	after := s.Snapshot()
+
+	if SnapshotsEqual(before, after) {
+		t.Fatal("SnapshotsEqual = true after a failure, want false")
+	}
+	if delta := ComputeDelta(before, after); delta != nil {
+		t.Fatalf("ComputeDelta = %#v, want nil (full snapshot) when the failure changes", delta)
+	}
+
+	s.RecordPlaybackFailure(1)
+	repeat := s.Snapshot()
+	if repeat.LastFailure.Occurrence == after.LastFailure.Occurrence {
+		t.Fatalf("occurrence = %d, want a new occurrence for a repeated failure", repeat.LastFailure.Occurrence)
+	}
+	if SnapshotsEqual(after, repeat) {
+		t.Fatal("SnapshotsEqual = true for a repeated failure, want false")
 	}
 }
