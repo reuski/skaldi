@@ -34,7 +34,7 @@ func New(logger *slog.Logger, p *player.Manager, r *resolver.Resolver, indexHTML
 		resolver:    r,
 		indexHTML:   indexHTML,
 		version:     version,
-		broadcaster: NewBroadcaster(p.StateUpdates),
+		broadcaster: NewBroadcaster(p.StateUpdates, p.State.Snapshot),
 		server: &http.Server{
 			Addr:              fmt.Sprintf(":%d", port),
 			ReadHeaderTimeout: 10 * time.Second,
