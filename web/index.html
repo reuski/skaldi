@@ -14,32 +14,26 @@
     />
     <style>
       :root {
-        /* Chassis & surfaces */
         --chassis: #0a0a0a;
         --surface: #141414;
         --surface-hi: #1c1c1c;
         --recess: #050505;
         --rule: #242424;
 
-        /* Accent — champagne gold */
         --accent: #c9a24a;
         --accent-lit: #e8c77a;
 
-        /* Text */
         --text: #e8e4d8;
         --text-sec: #7a746a;
         --text-dim: #4a453f;
 
-        /* Signal */
         --danger: #c2302a;
 
-        /* Rhythm */
         --space-1: 8px;
         --space-2: 16px;
         --space-3: 24px;
         --space-4: 32px;
 
-        /* Motion */
         --t: 150ms;
         --t-fast: 90ms;
       }
@@ -737,9 +731,16 @@
         color: var(--danger);
       }
 
-      .queue-item.pending .delete-btn,
       .queue-item.pending .play-now-btn {
         display: none;
+      }
+
+      .queue-item.pending:not(.error) .delete-btn {
+        display: none;
+      }
+
+      .queue-item.pending.error .delete-btn {
+        opacity: 1;
       }
 
       .search-container {
@@ -840,8 +841,14 @@
         margin-left: 8px;
       }
 
-      /* Unified selection language: 2px gold left bar on a surface-hi wash.
-         Queued-but-not-active gets a dimmer bar to distinguish state. */
+      .suggest-text.typeahead-track .typeahead-source {
+        flex: 0 0 auto;
+        font-size: 11px;
+        color: var(--text-sec);
+        border: 1px solid var(--rule);
+        padding: 0 6px;
+      }
+
       .suggest-text.active,
       .suggestion-item.active,
       .suggest-text.queued,
@@ -1025,6 +1032,40 @@
         border-color: var(--danger);
       }
 
+      .playback-error {
+        display: flex;
+        align-items: center;
+        gap: var(--space-2);
+        margin-bottom: var(--space-2);
+        padding: var(--space-1) var(--space-2);
+        background: rgba(100, 40, 40, 0.95);
+        border: 1px solid var(--danger);
+        color: var(--text);
+        font-size: 13px;
+      }
+
+      .playback-error[hidden] {
+        display: none;
+      }
+
+      .playback-error-text {
+        flex: 1;
+      }
+
+      .playback-error-dismiss {
+        background: transparent;
+        border: 1px solid var(--rule);
+        color: inherit;
+        font-size: 12px;
+        padding: 2px 8px;
+        cursor: pointer;
+      }
+
+      .playback-error-dismiss:focus-visible {
+        outline: 2px solid var(--accent);
+        outline-offset: 2px;
+      }
+
       @media (max-width: 640px) {
         .controls {
           padding-top: 6px;
@@ -1096,6 +1137,24 @@
 
     <main>
       <div class="queue-section">
+        <div
+          class="playback-error"
+          id="playbackError"
+          role="status"
+          aria-live="polite"
+          aria-atomic="true"
+          hidden
+        >
+          <span class="playback-error-text" id="playbackErrorText"></span>
+          <button
+            type="button"
+            class="playback-error-dismiss"
+            id="playbackErrorDismiss"
+            aria-label="Dismiss playback error"
+          >
+            Dismiss
+          </button>
+        </div>
         <ul class="queue-list" id="queueList"></ul>
       </div>
     </main>
@@ -1212,6 +1271,8 @@
     <script>
       const PLACEHOLDER =
         "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI2NCIgaGVpZ2h0PSI0OCIgc3R5bGU9ImJhY2tncm91bmQ6IzE0MTQxNCI+PC9zdmc+";
+      const REMOVE_ICON =
+        '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-trash-2"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/></svg>';
       const DEFAULT_VOLUME = 35;
 
       let prev = {
@@ -1237,9 +1298,13 @@
       const fileInput = $("fileInput");
       const suggestions = $("suggestions");
       const toastEl = $("toast");
+      const playbackErrorEl = $("playbackError");
+      const playbackErrorText = $("playbackErrorText");
+      const playbackErrorDismiss = $("playbackErrorDismiss");
 
       let pendingId = 0;
       let pendingItems = [];
+      let lastFailureOccurrence = 0;
       let lastData = null;
       let pendingVolume = null;
       let pendingMute = null;
@@ -1561,6 +1626,13 @@
         );
       }
 
+      function sourceLabel(source) {
+        if (source === "youtube") return "YouTube";
+        if (source === "ytmusic") return "YT Music";
+        if (source === "subsonic") return "Library";
+        return "";
+      }
+
       function renderTypeaheadHitHTML(hit) {
         const title = escHTML(hit.title || "");
         const artist = escHTML(hit.artist || "");
@@ -1568,6 +1640,10 @@
         const key = "queue:" + hit.queue_url;
         const isQueued = isSearchHitQueued(hit);
         const queuedClass = isQueued ? " queued" : "";
+        const source = sourceLabel(hit.source);
+        const sourceHTML = source
+          ? '<span class="typeahead-source">' + escHTML(source) + "</span>"
+          : "";
         return (
           '<div class="suggest-text typeahead-track' +
           queuedClass +
@@ -1579,6 +1655,7 @@
           '<span class="typeahead-track-line">' +
           line +
           "</span>" +
+          sourceHTML +
           '<span class="duration">' +
           searchHitDuration(hit) +
           "</span>" +
@@ -2101,13 +2178,12 @@
 
         currentFocusKey = option.dataset.searchKey || currentFocusKey;
         syncSuggestionAccessibility();
-        if (searchState.intent === "results" || searchState.intent === "album") {
-          void addSearchHitToQueue(hit);
-          return;
+        const fromResults =
+          searchState.intent === "results" || searchState.intent === "album";
+        void addSearchHitToQueue(hit);
+        if (!fromResults) {
+          closeSuggestions({ preserveInput: false });
         }
-
-        void addToQueue(hit.queue_url);
-        closeSuggestions({ preserveInput: false });
       });
 
       suggestions.addEventListener(
@@ -2382,7 +2458,7 @@
         const meta = item.metadata || {};
         const title = escHTML(meta.title || item.title || item.filename);
         const uploader = escHTML(meta.uploader || "");
-        const thumb = meta.thumbnail || PLACEHOLDER;
+        const thumb = escAttr(meta.thumbnail || PLACEHOLDER);
         const canAct = Number.isInteger(item.index) && item.index >= 0;
         let dur = "";
         const dVal = meta.duration || item.duration;
@@ -2400,7 +2476,9 @@
         const deleteBtn = canAct
           ? '<button class="delete-btn" data-idx="' +
             item.index +
-            '" type="button" aria-label="Remove"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-trash-2"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/></svg></button>'
+            '" type="button" aria-label="Remove">' +
+            REMOVE_ICON +
+            "</button>"
           : "";
         return (
           '<li class="' +
@@ -2413,9 +2491,7 @@
           playNowBtn +
           '<img src="' +
           thumb +
-          '" class="thumb" loading="lazy" draggable="false" onerror="this.src=\'' +
-          PLACEHOLDER +
-          "'\">" +
+          '" class="thumb" loading="lazy" draggable="false">' +
           '<div class="info"><div class="title">' +
           title +
           '</div><div class="meta">' +
@@ -2452,7 +2528,11 @@
           '<div class="meta">' +
           (p.status === "error" ? "" : statusText) +
           "</div></div>" +
-          '<button class="delete-btn" aria-label="Remove"></button></li>'
+          '<button class="delete-btn" data-pending-remove="' +
+          p.id +
+          '" type="button" aria-label="Remove">' +
+          REMOVE_ICON +
+          "</button></li>"
         );
       }
 
@@ -2571,6 +2651,7 @@
 
       function onState(data) {
         lastData = data;
+        renderPlaybackFailure(data.last_playback_failure);
 
         if (
           pendingVolume !== null &&
@@ -2678,7 +2759,16 @@
 
       queueList.addEventListener("click", (e) => {
         const item = e.target.closest(".queue-item");
-        if (!item || item.classList.contains("pending")) return;
+        if (!item) return;
+
+        if (item.classList.contains("pending")) {
+          const pendingBtn = e.target.closest("[data-pending-remove]");
+          if (pendingBtn) {
+            removePending(Number(pendingBtn.dataset.pendingRemove));
+            e.stopPropagation();
+          }
+          return;
+        }
 
         if (isDraggingQueueItem) {
           e.preventDefault();
@@ -2701,9 +2791,26 @@
         }
       });
 
+      queueList.addEventListener(
+        "error",
+        (e) => {
+          if (!e.target.classList || !e.target.classList.contains("thumb")) return;
+          e.target.src = PLACEHOLDER;
+        },
+        true,
+      );
+
       queueList.addEventListener("keydown", (e) => {
         const item = e.target.closest(".queue-item");
-        if (!item || item.classList.contains("pending")) return;
+        if (!item) return;
+
+        if (item.classList.contains("pending")) {
+          if (e.key === "Delete" || e.key === "Backspace") {
+            e.preventDefault();
+            removePending(Number(item.dataset.pending));
+          }
+          return;
+        }
 
         if (e.key === "Delete" || e.key === "Backspace") {
           const idx = parseInt(item.dataset.idx, 10);
@@ -3025,8 +3132,22 @@
           item.label = msg || "Failed";
           if (lastData) renderQueue(lastData);
           scheduleSearchRender();
-          setTimeout(() => removePending(id), 3000);
         }
+      }
+
+      function reportQueueResult(pid, data, successMessage) {
+        const rejected =
+          data && Number(data.rejected) > 0 ? Number(data.rejected) : 0;
+        if (rejected > 0) {
+          const count = data && Number(data.count) > 0 ? Number(data.count) : 0;
+          failPending(
+            pid,
+            "Added " + count + " of " + (count + rejected) + " tracks",
+          );
+          return;
+        }
+        removePending(pid);
+        if (successMessage) showToast(successMessage);
       }
 
       async function addToQueue(url) {
@@ -3040,7 +3161,11 @@
             body: JSON.stringify({ url }),
           });
           if (!res.ok) throw new Error(await res.text());
-          removePending(pid);
+          reportQueueResult(
+            pid,
+            await res.json().catch(() => null),
+            "Added to queue",
+          );
         } catch (err) {
           failPending(pid, err.message || "Failed to add");
         }
@@ -3059,7 +3184,11 @@
             body: JSON.stringify({ hits: [hit] }),
           });
           if (!res.ok) throw new Error(await res.text());
-          removePending(pid);
+          reportQueueResult(
+            pid,
+            await res.json().catch(() => null),
+            "Added to queue",
+          );
         } catch (err) {
           failPending(pid, err.message || "Failed to add");
         }
@@ -3080,8 +3209,11 @@
             body: JSON.stringify({ hits: tracks }),
           });
           if (!res.ok) throw new Error(await res.text());
-          removePending(pid);
-          closeSuggestions({ preserveInput: false });
+          const data = await res.json().catch(() => null);
+          reportQueueResult(pid, data, "Added to queue");
+          if (!data || !(Number(data.rejected) > 0)) {
+            closeSuggestions({ preserveInput: false });
+          }
         } catch (err) {
           failPending(pid, err.message || "Failed to add");
         }
@@ -3098,27 +3230,32 @@
           return true;
         } catch (err) {
           console.error(err);
+          showToast("Playback request failed", true);
           return false;
         }
       }
 
       async function playItem(index) {
         try {
-          await fetch("/playback", {
+          const res = await fetch("/playback", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ action: "play", index }),
           });
+          if (!res.ok) throw new Error(await res.text());
         } catch (err) {
           console.error(err);
+          showToast("Could not start that track", true);
         }
       }
 
       async function removeItem(index) {
         try {
-          await fetch("/queue/" + index, { method: "DELETE" });
+          const res = await fetch("/queue/" + index, { method: "DELETE" });
+          if (!res.ok) throw new Error(await res.text());
         } catch (err) {
           console.error(err);
+          showToast("Could not remove that track", true);
         }
       }
 
@@ -3141,12 +3278,30 @@
         setTimeout(() => (toastEl.className = "toast"), 3000);
       }
 
+      function renderPlaybackFailure(failure) {
+        if (!failure || !failure.occurrence) return;
+        if (failure.occurrence === lastFailureOccurrence) return;
+        lastFailureOccurrence = failure.occurrence;
+        const name = failure.title || "a track";
+        playbackErrorText.textContent =
+          "Could not play " + name + ". It may be unavailable or restricted.";
+        playbackErrorEl.hidden = false;
+      }
+
+      playbackErrorDismiss.addEventListener("click", () => {
+        playbackErrorEl.hidden = true;
+      });
+
       document.addEventListener("keydown", (e) => {
-        if (e.target.tagName === "INPUT") {
+        if (
+          e.target.closest("input, textarea, select, button, a[href]") ||
+          e.target.isContentEditable
+        ) {
           return;
         }
 
-        if (e.target === volumeKnob || e.target === muteBtn) {
+        // The knob is a role="slider" div, so the selector guard above misses it.
+        if (e.target === volumeKnob) {
           return;
         }
 
@@ -3205,14 +3360,24 @@
           return;
         }
 
+        const target = e.target;
+        if (
+          target &&
+          (target.tagName === "INPUT" ||
+            target.tagName === "TEXTAREA" ||
+            target.isContentEditable)
+        ) {
+          return;
+        }
+
         const pasted = (e.clipboardData || window.clipboardData).getData(
           "text",
         );
-        const urlMatch = pasted.match(/https?:\/\/[^\s]+/);
-        if (!urlMatch) return;
+        const trimmed = pasted.trim();
+        if (!/^https?:\/\/\S+$/i.test(trimmed)) return;
 
         e.preventDefault();
-        addToQueue(urlMatch[0]);
+        addToQueue(trimmed);
       });
     </script>
   </body>
